@@ -14,6 +14,15 @@ class RedSocialRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        if ($this->url_perfil && !preg_match('/^https?:\/\//', $this->url_perfil)) {
+            $this->merge([
+                'url_perfil' => 'https://' . $this->url_perfil,
+            ]);
+        }
+    }
+
     public function rules(): array
     {
         return [

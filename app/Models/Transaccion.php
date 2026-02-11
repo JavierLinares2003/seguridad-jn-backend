@@ -2,12 +2,16 @@
 
 namespace App\Models;
 
+use App\Traits\AuditableModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Transaccion extends Model
 {
-    use HasFactory;
+    use HasFactory, AuditableModel;
+
+    protected string $logName = 'transacciones';
+    protected string $modulo = 'operaciones';
 
     protected $table = 'operaciones_transacciones';
 

@@ -21,7 +21,7 @@ class TipoDocumentoPersonalSeeder extends Seeder
                 'extensiones_permitidas' => ['pdf', 'jpg', 'jpeg', 'png'],
             ],
             [
-                'nombre' => 'Antecedentes Policiacos',
+                'nombre' => 'Antecedentes Policiales',
                 'requiere_vencimiento' => true,
                 'extensiones_permitidas' => ['pdf', 'jpg', 'jpeg', 'png'],
             ],
@@ -69,12 +69,7 @@ class TipoDocumentoPersonalSeeder extends Seeder
                 'nombre' => 'Constancia Laboral',
                 'requiere_vencimiento' => false,
                 'extensiones_permitidas' => ['pdf', 'jpg', 'jpeg', 'png'],
-            ],
-            [
-                'nombre' => 'Carnet DIGESSP',
-                'requiere_vencimiento' => true,
-                'extensiones_permitidas' => ['pdf', 'jpg', 'jpeg', 'png'],
-            ],
+            ]
         ];
 
         foreach ($tipos as $tipo) {

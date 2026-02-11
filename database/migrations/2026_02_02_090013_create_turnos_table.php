@@ -13,7 +13,7 @@ return new class extends Migration
             $table->string('nombre', 50)->unique();
             $table->time('hora_inicio');
             $table->time('hora_fin');
-            $table->decimal('horas_trabajo', 4, 2);
+            $table->decimal('horas_trabajo', 5, 2);
             $table->text('descripcion')->nullable();
             $table->boolean('requiere_descanso')->default(false);
             $table->boolean('activo')->default(true);

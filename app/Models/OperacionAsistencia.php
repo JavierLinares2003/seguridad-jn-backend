@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\AuditableModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,7 +12,10 @@ use Carbon\Carbon;
 
 class OperacionAsistencia extends Model
 {
-    use HasFactory;
+    use HasFactory, AuditableModel;
+
+    protected string $logName = 'asistencia';
+    protected string $modulo = 'operaciones';
 
     protected $table = 'operaciones_asistencia';
 

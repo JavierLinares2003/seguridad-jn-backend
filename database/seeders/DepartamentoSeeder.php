@@ -13,10 +13,11 @@ class DepartamentoSeeder extends Seeder
             'Administración',
             'Recursos Humanos',
             'Operaciones',
-            'Finanzas',
             'Contabilidad',
             'Logística',
             'Seguridad',
+            'Mantenimiento',
+            'Ventas',
             'Tecnología',
             'Gerencia General',
         ];

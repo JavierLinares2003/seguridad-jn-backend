@@ -2,12 +2,17 @@
 
 namespace App\Models;
 
+use App\Traits\AuditableModel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Planilla extends Model
 {
+    use AuditableModel;
+
+    protected string $logName = 'planillas';
+    protected string $modulo = 'planillas';
     protected $table = 'planillas';
     
     protected $fillable = [

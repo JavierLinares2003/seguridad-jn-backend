@@ -32,9 +32,36 @@ class DatabaseSeeder extends Seeder
             ]
         );
 
-        // Assign admin role to the admin user
         if (!$admin->hasRole('admin')) {
             $admin->assignRole('admin');
+        }
+
+        // Create personal user
+        $personal = User::firstOrCreate(
+            ['email' => 'personal@seguridadjn.com'],
+            [
+                'name' => 'Gestor de Personal',
+                'password' => Hash::make('password'),
+                'estado' => true,
+            ]
+        );
+
+        if (!$personal->hasRole('gestor-personal')) {
+            $personal->assignRole('gestor-personal');
+        }
+
+        // Create proyectos user
+        $proyectos = User::firstOrCreate(
+            ['email' => 'proyectos@seguridadjn.com'],
+            [
+                'name' => 'Gestor de Proyectos',
+                'password' => Hash::make('password'),
+                'estado' => true,
+            ]
+        );
+
+        if (!$proyectos->hasRole('gestor-proyectos')) {
+            $proyectos->assignRole('gestor-proyectos');
         }
     }
 }

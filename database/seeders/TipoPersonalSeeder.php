@@ -10,7 +10,17 @@ class TipoPersonalSeeder extends Seeder
     public function run(): void
     {
         $tipos = [
-            'Operativo',
+            'Rondín',
+            'Jefe de grupo',
+            'Custodio',
+            'Garitero',
+            'Escolta',
+            'Piloto',
+            'Patrullero',
+            'Patrulla reforzada',
+            'Agente',
+            'Anfitrión',
+            'Técnico',
             'Administrativo',
             'Supervisor',
             'Gerencial',

@@ -56,6 +56,9 @@ class RolesAndPermissionsSeeder extends Seeder
             // Admin dashboard
             'access-admin-dashboard',
 
+            // Bitacora/Audit Log
+            'view-bitacora',
+
             // PROJECTS Module
             'view-proyectos',
             'create-proyectos',
@@ -93,15 +96,31 @@ class RolesAndPermissionsSeeder extends Seeder
         $this->createAdminRole($permissions);
         $this->createSupervisorRole();
         $this->createOperadorRole();
+        $this->createGestorPersonalRole();
+        $this->createGestorProyectosRole();
     }
 
     /**
-     * Create admin role with all permissions.
+     * Create admin role with all permissions except Operations module.
      */
     private function createAdminRole(array $allPermissions): void
     {
+        // Exclude Operations module permissions temporarily
+        $excludedPermissions = [
+            'view-operaciones',
+            'manage-asistencia',
+            'manage-asignaciones',
+            'manage-transacciones',
+            'manage-prestamos',
+            'view-alertas-cobertura',
+        ];
+
+        $adminPermissions = array_filter($allPermissions, function ($permission) use ($excludedPermissions) {
+            return !in_array($permission, $excludedPermissions);
+        });
+
         $admin = Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
-        $admin->syncPermissions($allPermissions);
+        $admin->syncPermissions($adminPermissions);
     }
 
     /**
@@ -172,6 +191,60 @@ class RolesAndPermissionsSeeder extends Seeder
 
             // Operations (View only)
             'view-operaciones',
+        ]);
+    }
+
+    /**
+     * Create gestor-personal role with only personal module permissions.
+     */
+    private function createGestorPersonalRole(): void
+    {
+        $gestorPersonal = Role::firstOrCreate(['name' => 'gestor-personal', 'guard_name' => 'web']);
+        $gestorPersonal->syncPermissions([
+            // Personal management (full access)
+            'view-personal',
+            'create-personal',
+            'edit-personal',
+            'delete-personal',
+            'restore-personal',
+
+            // Personal documents (full access)
+            'view-documentos',
+            'upload-documentos',
+            'download-documentos',
+            'delete-documentos',
+
+            // Personal related data (full access)
+            'manage-personal-direccion',
+            'manage-personal-familiares',
+            'manage-personal-referencias',
+            'manage-personal-redes-sociales',
+
+            // Catalogs (view only - needed for forms)
+            'view-catalogos',
+        ]);
+    }
+
+    /**
+     * Create gestor-proyectos role with only projects module permissions.
+     */
+    private function createGestorProyectosRole(): void
+    {
+        $gestorProyectos = Role::firstOrCreate(['name' => 'gestor-proyectos', 'guard_name' => 'web']);
+        $gestorProyectos->syncPermissions([
+            // Projects management (full access)
+            'view-proyectos',
+            'create-proyectos',
+            'edit-proyectos',
+            'delete-proyectos',
+            'restore-proyectos',
+            'manage-proyectos-contactos',
+            'manage-proyectos-inventario',
+            'manage-proyectos-configuracion',
+            'manage-proyectos-asignaciones',
+
+            // Catalogs (view only - needed for forms)
+            'view-catalogos',
         ]);
     }
 }

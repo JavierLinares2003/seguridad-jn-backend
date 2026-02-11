@@ -41,25 +41,10 @@ class TipoDocumentoProyectoSeeder extends Seeder
                 'extensiones_permitidas' => ['pdf', 'jpg', 'jpeg', 'png', 'dwg'],
             ],
             [
-                'nombre' => 'Fianza de Cumplimiento',
-                'requiere_vencimiento' => true,
-                'extensiones_permitidas' => ['pdf'],
-            ],
-            [
-                'nombre' => 'Póliza de Seguro',
-                'requiere_vencimiento' => true,
-                'extensiones_permitidas' => ['pdf'],
-            ],
-            [
-                'nombre' => 'Informe de Servicio',
+                'nombre' => 'Carta de Servicio',
                 'requiere_vencimiento' => false,
                 'extensiones_permitidas' => ['pdf', 'doc', 'docx'],
-            ],
-            [
-                'nombre' => 'Factura',
-                'requiere_vencimiento' => false,
-                'extensiones_permitidas' => ['pdf', 'xml'],
-            ],
+            ]
         ];
 
         foreach ($tipos as $tipo) {

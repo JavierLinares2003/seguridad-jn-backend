@@ -8,6 +8,7 @@ use App\Models\Catalogos\Sexo;
 use App\Models\Catalogos\TipoContratacion;
 use App\Models\Catalogos\TipoPago;
 use App\Models\Catalogos\TipoSangre;
+use App\Traits\AuditableModel;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,7 +19,10 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 
 class Personal extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, AuditableModel;
+
+    protected string $logName = 'personal';
+    protected string $modulo = 'personal';
 
     protected $table = 'personal';
 

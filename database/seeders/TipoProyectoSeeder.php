@@ -10,20 +10,15 @@ class TipoProyectoSeeder extends Seeder
     public function run(): void
     {
         $tipos = [
-            'Seguridad Física',
-            'Seguridad Electrónica',
-            'Vigilancia',
-            'Custodia',
-            'Escolta',
-            'Monitoreo',
-            'Seguridad Residencial',
-            'Seguridad Industrial',
-            'Seguridad Comercial',
-            'Eventos',
+            ['nombre' => 'Servicio', 'prefijo_correlativo' => 'SRV'],
+            ['nombre' => 'Proyecto', 'prefijo_correlativo' => 'PRY'],
         ];
 
         foreach ($tipos as $tipo) {
-            TipoProyecto::firstOrCreate(['nombre' => $tipo]);
+            TipoProyecto::firstOrCreate(
+                ['nombre' => $tipo['nombre']],
+                ['prefijo_correlativo' => $tipo['prefijo_correlativo']]
+            );
         }
     }
 }

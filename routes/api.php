@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\UserController;
+use App\Http\Controllers\Api\V1\RoleController;
 use App\Http\Controllers\Api\V1\ProyectoController;
 use App\Http\Controllers\Api\V1\ProyectoContactoController;
 use App\Http\Controllers\Api\V1\ProyectoInventarioController;
@@ -14,6 +16,7 @@ use App\Http\Controllers\Api\V1\PersonalDocumentoController;
 use App\Http\Controllers\Api\V1\PrestamoController;
 use App\Http\Controllers\Api\V1\TransaccionController;
 use App\Http\Controllers\Api\V1\AlertaCoberturaController;
+use App\Http\Controllers\Api\V1\BitacoraController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -134,14 +137,52 @@ Route::prefix('v1')->group(function () {
             })->name('api.v1.admin.dashboard');
         });
 
-        // Routes requiring specific permissions
-        Route::middleware(['permission:manage-users'])->prefix('users')->group(function () {
-            Route::get('/', function () {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'List users',
-                ]);
-            })->name('api.v1.users.index');
+        // Users Management Routes
+        Route::prefix('users')->group(function () {
+            Route::get('/', [UserController::class, 'index'])
+                ->name('api.v1.users.index');
+            Route::post('/', [UserController::class, 'store'])
+                ->name('api.v1.users.store');
+            Route::get('/{id}', [UserController::class, 'show'])
+                ->name('api.v1.users.show');
+            Route::put('/{id}', [UserController::class, 'update'])
+                ->name('api.v1.users.update');
+            Route::delete('/{id}', [UserController::class, 'destroy'])
+                ->name('api.v1.users.destroy');
+            Route::patch('/{id}/toggle-estado', [UserController::class, 'toggleEstado'])
+                ->name('api.v1.users.toggle-estado');
+
+            // Role assignment
+            Route::post('/{id}/roles', [UserController::class, 'assignRole'])
+                ->name('api.v1.users.assign-role');
+            Route::put('/{id}/roles', [UserController::class, 'syncRoles'])
+                ->name('api.v1.users.sync-roles');
+            Route::delete('/{id}/roles/{role}', [UserController::class, 'removeRole'])
+                ->name('api.v1.users.remove-role');
+        });
+
+        // Roles Routes
+        Route::prefix('roles')->group(function () {
+            Route::get('/', [RoleController::class, 'index'])
+                ->name('api.v1.roles.index');
+            Route::get('/{id}', [RoleController::class, 'show'])
+                ->name('api.v1.roles.show');
+        });
+
+        // Bitacora/Audit Log Routes
+        Route::prefix('bitacora')->group(function () {
+            Route::get('/', [BitacoraController::class, 'index'])
+                ->name('api.v1.bitacora.index');
+            Route::get('/filtros', [BitacoraController::class, 'filtros'])
+                ->name('api.v1.bitacora.filtros');
+            Route::get('/estadisticas', [BitacoraController::class, 'estadisticas'])
+                ->name('api.v1.bitacora.estadisticas');
+            Route::get('/modelo/{modelo}', [BitacoraController::class, 'porModelo'])
+                ->name('api.v1.bitacora.por-modelo');
+            Route::get('/usuario/{id}', [BitacoraController::class, 'porUsuario'])
+                ->name('api.v1.bitacora.por-usuario');
+            Route::get('/{id}', [BitacoraController::class, 'show'])
+                ->name('api.v1.bitacora.show');
         });
 
         /*

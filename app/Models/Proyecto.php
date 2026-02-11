@@ -3,13 +3,17 @@
 namespace App\Models;
 
 use App\Models\Catalogos\TipoProyecto;
+use App\Traits\AuditableModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Proyecto extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory, SoftDeletes, AuditableModel;
+
+    protected string $logName = 'proyectos';
+    protected string $modulo = 'proyectos';
 
     protected $table = 'proyectos';
 

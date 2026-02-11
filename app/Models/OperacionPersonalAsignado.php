@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Catalogos\Turno;
+use App\Traits\AuditableModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +13,10 @@ use Carbon\Carbon;
 
 class OperacionPersonalAsignado extends Model
 {
-    use HasFactory;
+    use HasFactory, AuditableModel;
+
+    protected string $logName = 'asignaciones';
+    protected string $modulo = 'operaciones';
 
     protected $table = 'operaciones_personal_asignado';
 

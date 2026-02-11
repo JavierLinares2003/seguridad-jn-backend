@@ -15,6 +15,7 @@ class TipoContratacionSeeder extends Seeder
             'Por Proyecto',
             'Temporal',
             'Por Servicios Profesionales',
+            'Por Servicios Técnicos',
         ];
 
         foreach ($tipos as $tipo) {
