@@ -144,17 +144,32 @@ class PersonalDisponibilidadService
         }
 
         // Validar sexo (si está especificado)
-        $cumpleSexo = !$config->sexo_id || $personal->sexo_id === $config->sexo_id;
-        
+        $cumpleSexo = true;
+
         if ($config->sexo_id) {
+            $sexoRequerido = $config->sexo->nombre ?? null;
+            $sexoPersonal = $personal->sexo->nombre ?? null;
+
+            if ($sexoRequerido === 'Ambos') {
+                // "Ambos" acepta Masculino o Femenino
+                $cumpleSexo = in_array($sexoPersonal, ['Masculino', 'Femenino']);
+            } else {
+                // Debe coincidir exactamente
+                $cumpleSexo = $personal->sexo_id === $config->sexo_id;
+            }
+
             $detalles['sexo'] = [
-                'valor_personal' => $personal->sexo->nombre ?? 'No especificado',
-                'requerido' => $config->sexo->nombre ?? 'No especificado',
+                'valor_personal' => $sexoPersonal ?? 'No especificado',
+                'requerido' => $sexoRequerido ?? 'No especificado',
                 'cumple' => $cumpleSexo,
             ];
 
             if (!$cumpleSexo) {
-                $errores[] = 'El sexo no coincide con el requerido para el puesto.';
+                if ($sexoRequerido === 'Ambos') {
+                    $errores[] = 'El puesto requiere personal Masculino o Femenino.';
+                } else {
+                    $errores[] = 'El sexo no coincide con el requerido para el puesto.';
+                }
             }
         }
 
@@ -306,7 +321,16 @@ class PersonalDisponibilidadService
 
         // Filtrar por sexo si está especificado
         if ($config->sexo_id) {
-            $query->where('sexo_id', $config->sexo_id);
+            $sexoRequerido = $config->sexo->nombre ?? null;
+
+            if ($sexoRequerido === 'Ambos') {
+                // "Ambos" acepta Masculino o Femenino
+                $query->whereHas('sexo', function ($q) {
+                    $q->whereIn('nombre', ['Masculino', 'Femenino']);
+                });
+            } else {
+                $query->where('sexo_id', $config->sexo_id);
+            }
         }
 
         // Filtrar por altura mínima si está especificada

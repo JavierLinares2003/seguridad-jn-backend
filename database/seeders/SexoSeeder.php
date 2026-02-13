@@ -9,7 +9,7 @@ class SexoSeeder extends Seeder
 {
     public function run(): void
     {
-        $sexos = ['Masculino', 'Femenino', 'Otro'];
+        $sexos = ['Masculino', 'Femenino', 'Otro', 'Ambos'];
 
         foreach ($sexos as $sexo) {
             Sexo::firstOrCreate(['nombre' => $sexo]);
