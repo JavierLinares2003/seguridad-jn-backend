@@ -103,6 +103,13 @@ class CatalogoController extends Controller
             $query->where('departamento_geo_id', $request->departamento_id);
         }
 
+        // Special case for sexos: filter by context
+        // ?contexto=personal -> exclude "Ambos" (only for personal registration)
+        // ?contexto=configuracion -> include all (for project position configuration)
+        if ($catalogo === 'sexos' && $request->input('contexto') === 'personal') {
+            $query->where('nombre', '!=', 'Ambos');
+        }
+
         // Include relationships
         if ($catalogo === 'municipios') {
             $query->with('departamentoGeografico:id,codigo,nombre');
@@ -184,6 +191,11 @@ class CatalogoController extends Controller
             // Exclude municipios from bulk load (too many records)
             if ($key === 'municipios') {
                 continue;
+            }
+
+            // Exclude "Ambos" from sexos in bulk load (it's only for project configuration)
+            if ($key === 'sexos') {
+                $query->where('nombre', '!=', 'Ambos');
             }
 
             $data[$key] = $query->get();
