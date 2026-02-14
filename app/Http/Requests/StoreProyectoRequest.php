@@ -21,7 +21,7 @@ class StoreProyectoRequest extends FormRequest
             'fecha_inicio_estimada' => ['nullable', 'date'],
             'fecha_fin_estimada' => ['nullable', 'date', 'after_or_equal:fecha_inicio_estimada'],
             'fecha_inicio_real' => ['nullable', 'date'],
-            'fecha_fin_real' => ['nullable', 'date', 'after_or_equal:fecha_inicio_real'],
+            'fecha_fin_real' => ['nullable', 'date'],
             'estado_proyecto' => ['nullable', 'string', 'in:planificacion,activo,suspendido,finalizado'],
 
             // Ubicación
