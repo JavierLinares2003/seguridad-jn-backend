@@ -20,11 +20,11 @@ class ReferenciaLaboralRequest extends FormRequest
         return [
             'nombre_empresa' => ['required', 'string', 'max:200'],
             'puesto_ocupado' => ['required', 'string', 'max:100'],
-            'telefono' => ['required', 'string', 'max:15'],
+            'telefono' => ['nullable', 'string', 'max:15'],
             'direccion' => ['nullable', 'string', 'max:500'],
-            'fecha_inicio' => ['required', 'date', 'before_or_equal:today'],
-            'fecha_fin' => ['nullable', 'date', 'after:fecha_inicio', 'before_or_equal:today'],
-            'motivo_retiro' => ['nullable', 'string', 'max:500', 'required_with:fecha_fin'],
+            'fecha_inicio' => ['nullable', 'date', 'before_or_equal:today'],
+            'fecha_fin' => ['nullable', 'date', 'before_or_equal:today'],
+            'motivo_retiro' => ['nullable', 'string', 'max:500'],
         ];
     }
 
@@ -35,12 +35,8 @@ class ReferenciaLaboralRequest extends FormRequest
             'nombre_empresa.max' => 'El nombre de la empresa no puede exceder 200 caracteres.',
             'puesto_ocupado.required' => 'El puesto ocupado es obligatorio.',
             'puesto_ocupado.max' => 'El puesto ocupado no puede exceder 100 caracteres.',
-            'telefono.required' => 'El teléfono es obligatorio.',
-            'fecha_inicio.required' => 'La fecha de inicio es obligatoria.',
             'fecha_inicio.before_or_equal' => 'La fecha de inicio no puede ser futura.',
-            'fecha_fin.after' => 'La fecha de fin debe ser posterior a la fecha de inicio.',
             'fecha_fin.before_or_equal' => 'La fecha de fin no puede ser futura.',
-            'motivo_retiro.required_with' => 'Debe indicar el motivo de retiro si especifica fecha de fin.',
         ];
     }
 
@@ -51,8 +47,10 @@ class ReferenciaLaboralRequest extends FormRequest
             $referenciaId = $this->route('referencia');
 
             // Validar que solo exista una referencia sin fecha_fin (trabajo actual)
-            if (is_null($this->fecha_fin)) {
+            // Solo aplica si tiene fecha_inicio (referencias con fechas formales)
+            if ($this->fecha_inicio && is_null($this->fecha_fin)) {
                 $query = PersonalReferenciaLaboral::where('personal_id', $personalId)
+                    ->whereNotNull('fecha_inicio')
                     ->whereNull('fecha_fin');
 
                 if ($referenciaId) {
@@ -67,7 +65,7 @@ class ReferenciaLaboralRequest extends FormRequest
                 }
             }
 
-            // Validar solapamiento de fechas
+            // Validar solapamiento de fechas (solo si hay fecha_inicio)
             if ($this->fecha_inicio) {
                 $fechaInicio = Carbon::parse($this->fecha_inicio);
                 $fechaFin = $this->fecha_fin ? Carbon::parse($this->fecha_fin) : Carbon::now();
