@@ -227,6 +227,25 @@ class PersonalController extends Controller
             return false;
         });
 
+        // Log de datos que se envían a la vista del CV
+        \Illuminate\Support\Facades\Log::info('Generando CV para personal', [
+            'personal_id' => $personal->id,
+            'nombres' => $personal->nombres,
+            'apellidos' => $personal->apellidos,
+            'fecha_nacimiento' => $personal->fecha_nacimiento,
+            'referencias_laborales' => $personal->referenciasLaborales->map(function ($ref) {
+                return [
+                    'id' => $ref->id,
+                    'nombre_empresa' => $ref->nombre_empresa,
+                    'puesto_ocupado' => $ref->puesto_ocupado,
+                    'fecha_inicio' => $ref->fecha_inicio,
+                    'fecha_fin' => $ref->fecha_fin,
+                ];
+            })->toArray(),
+            'foto_principal' => $fotoPrincipal ? $fotoPrincipal->id : null,
+            'fotografias_count' => $fotografias->count(),
+        ]);
+
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.cv', [
             'personal' => $personal,
             'fotoPrincipal' => $fotoPrincipal,

@@ -136,7 +136,7 @@
     <div class="header">
         <!-- Logo Empresa -->
         <img src="{{ public_path('images/imagen-removebg-preview.png') }}" class="logo-empresa" alt="Logo Empresa">
-        
+
         <div class="nombre-completo">{{ $personal->nombres }} {{ $personal->apellidos }}</div>
         <div class="puesto">{{ $personal->puesto }}</div>
     </div>
@@ -251,7 +251,7 @@
             <div class="referencia-empresa">{{ $referencia->nombre_empresa }}</div>
             <div class="referencia-puesto">{{ $referencia->puesto_ocupado }}</div>
             <div class="referencia-periodo">
-                {{ $referencia->fecha_inicio->format('d/m/Y') }} - {{ $referencia->fecha_fin->format('d/m/Y') }}
+                {{ $referencia->fecha_inicio?->format('d/m/Y') ?? 'N/A' }} - {{ $referencia->fecha_fin?->format('d/m/Y') ?? 'Actual' }}
                 @if($referencia->tiempo_laborado_formateado ?? false)
                 ({{ $referencia->tiempo_laborado_formateado }})
                 @endif
