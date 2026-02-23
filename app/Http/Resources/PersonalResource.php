@@ -61,6 +61,11 @@ class PersonalResource extends JsonResource
             'salario_base' => $this->salario_base,
             'puesto' => $this->puesto,
 
+            // Información bancaria
+            'banco' => $this->banco,
+            'tipo_cuenta' => $this->tipo_cuenta,
+            'numero_cuenta' => $this->numero_cuenta,
+
             // Otros
             'observaciones' => $this->observaciones,
             'foto_perfil' => $this->foto_perfil,

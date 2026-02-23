@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Personal;
 
+use App\Models\Catalogos\TipoPago;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -80,6 +81,11 @@ class UpdatePersonalRequest extends FormRequest
             'puesto' => ['sometimes', 'required', 'string', 'max:100'],
             'departamento_id' => ['nullable', 'exists:departamentos,id'],
 
+            // Información bancaria (requerida si tipo de pago es transferencia o depósito)
+            'banco' => ['nullable', 'string', 'max:100'],
+            'tipo_cuenta' => ['nullable', 'string', 'in:Ahorro,Corriente,Monetaria'],
+            'numero_cuenta' => ['nullable', 'string', 'max:50'],
+
             // Otros
             'observaciones' => ['nullable', 'string'],
             'foto_perfil' => ['nullable', 'string', 'max:255'],
@@ -143,7 +149,32 @@ class UpdatePersonalRequest extends FormRequest
             'salario_base.required' => 'El salario base es obligatorio.',
             'puesto.required' => 'El puesto es obligatorio.',
             'estado.in' => 'El estado debe ser: activo, inactivo o suspendido.',
+            'banco.required' => 'El banco es obligatorio para pagos por transferencia o depósito.',
+            'tipo_cuenta.required' => 'El tipo de cuenta es obligatorio para pagos por transferencia o depósito.',
+            'tipo_cuenta.in' => 'El tipo de cuenta debe ser: Ahorro, Corriente o Monetaria.',
+            'numero_cuenta.required' => 'El número de cuenta es obligatorio para pagos por transferencia o depósito.',
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function ($validator) {
+            if ($this->tipo_pago_id) {
+                $tipoPago = TipoPago::find($this->tipo_pago_id);
+
+                if ($tipoPago && in_array($tipoPago->nombre, ['Transferencia Bancaria', 'Depósito Bancario'])) {
+                    if (empty($this->banco)) {
+                        $validator->errors()->add('banco', 'El banco es obligatorio para pagos por transferencia o depósito.');
+                    }
+                    if (empty($this->tipo_cuenta)) {
+                        $validator->errors()->add('tipo_cuenta', 'El tipo de cuenta es obligatorio para pagos por transferencia o depósito.');
+                    }
+                    if (empty($this->numero_cuenta)) {
+                        $validator->errors()->add('numero_cuenta', 'El número de cuenta es obligatorio para pagos por transferencia o depósito.');
+                    }
+                }
+            }
+        });
     }
 
     protected function failedValidation(Validator $validator): void
