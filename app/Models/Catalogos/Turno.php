@@ -13,6 +13,8 @@ class Turno extends Model
         'hora_inicio',
         'hora_fin',
         'horas_trabajo',
+        'dias_trabajo',
+        'dias_descanso',
         'descripcion',
         'requiere_descanso',
         'activo',
@@ -24,9 +26,19 @@ class Turno extends Model
             'hora_inicio' => 'datetime:H:i',
             'hora_fin' => 'datetime:H:i',
             'horas_trabajo' => 'decimal:2',
+            'dias_trabajo' => 'integer',
+            'dias_descanso' => 'integer',
             'requiere_descanso' => 'boolean',
             'activo' => 'boolean',
         ];
+    }
+
+    /**
+     * Get the total cycle length (work days + rest days)
+     */
+    public function getCicloTotalAttribute(): int
+    {
+        return ($this->dias_trabajo ?? 1) + ($this->dias_descanso ?? 0);
     }
 
     public function scopeActivos($query)

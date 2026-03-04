@@ -12,7 +12,11 @@ use Illuminate\Support\Facades\DB;
 class AsistenciaService
 {
     /**
-     * Registra asistencia para múltiples asignaciones.
+     * Registra asistencia para múltiples asignaciones o personal directo.
+     *
+     * Soporta:
+     * - personal_asignado_id: asistencia vinculada a una asignación
+     * - personal_id: asistencia directa a personal sin asignación
      */
     public function registrarAsistenciaMasiva(array $asistencias, ?int $userId = null): array
     {
@@ -26,19 +30,36 @@ class AsistenciaService
         try {
             foreach ($asistencias as $index => $datos) {
                 try {
-                    $asistencia = OperacionAsistencia::crearOActualizar(
-                        $datos['personal_asignado_id'],
-                        $datos['fecha_asistencia'],
-                        $datos,
-                        $userId
-                    );
+                    // Normalizar datos para evitar inconsistencias
+                    $datos = $this->normalizarDatosAsistencia($datos);
 
-                    $asistencia->load(['asignacion.personal', 'asignacion.proyecto']);
+                    // Determinar si es asistencia con asignación o directa
+                    if (!empty($datos['personal_asignado_id'])) {
+                        // Asistencia con asignación (comportamiento original)
+                        $asistencia = OperacionAsistencia::crearOActualizar(
+                            $datos['personal_asignado_id'],
+                            $datos['fecha_asistencia'],
+                            $datos,
+                            $userId
+                        );
+                        $asistencia->load(['asignacion.personal', 'asignacion.proyecto']);
+                    } else {
+                        // Asistencia directa a personal sin asignación
+                        $asistencia = OperacionAsistencia::crearOActualizarDirecta(
+                            $datos['personal_id'],
+                            $datos['fecha_asistencia'],
+                            $datos,
+                            $userId
+                        );
+                        $asistencia->load(['personal']);
+                    }
+
                     $resultados['exitosos'][] = $asistencia;
                 } catch (\Exception $e) {
                     $resultados['errores'][] = [
                         'index' => $index,
                         'personal_asignado_id' => $datos['personal_asignado_id'] ?? null,
+                        'personal_id' => $datos['personal_id'] ?? null,
                         'fecha' => $datos['fecha_asistencia'] ?? null,
                         'error' => $this->parsearErrorPostgres($e->getMessage()),
                     ];
@@ -282,6 +303,59 @@ class AsistenciaService
     }
 
     /**
+     * Normaliza los datos de asistencia para mantener coherencia.
+     *
+     * Prioridad:
+     * 1. Si es_descanso = true → limpia todo
+     * 2. Si es_ausente = true → limpia hora_entrada/salida
+     * 3. Si hora_entrada existe → limpia campos de ausencia/reemplazo
+     */
+    private function normalizarDatosAsistencia(array $datos): array
+    {
+        // Si es descanso, limpiar todo lo demás
+        if (!empty($datos['es_descanso']) && $datos['es_descanso'] === true) {
+            $datos['hora_entrada'] = null;
+            $datos['hora_salida'] = null;
+            $datos['llego_tarde'] = false;
+            $datos['minutos_retraso'] = 0;
+            $datos['es_ausente'] = false;
+            $datos['motivo_ausencia_id'] = null;
+            $datos['descripcion_ausencia'] = null;
+            $datos['tipo_ausencia'] = null;
+            $datos['fue_reemplazado'] = false;
+            $datos['personal_reemplazo_id'] = null;
+            $datos['motivo_reemplazo'] = null;
+
+            return $datos;
+        }
+
+        // Si es ausente, limpiar campos de asistencia normal
+        if (!empty($datos['es_ausente']) && $datos['es_ausente'] === true) {
+            $datos['hora_entrada'] = null;
+            $datos['hora_salida'] = null;
+            $datos['llego_tarde'] = false;
+            $datos['minutos_retraso'] = 0;
+            $datos['es_descanso'] = false;
+
+            return $datos;
+        }
+
+        // Si tiene hora de entrada (asistencia normal), limpiar campos de ausencia/reemplazo
+        if (!empty($datos['hora_entrada'])) {
+            $datos['es_ausente'] = false;
+            $datos['motivo_ausencia_id'] = null;
+            $datos['descripcion_ausencia'] = null;
+            $datos['tipo_ausencia'] = null;
+            $datos['fue_reemplazado'] = false;
+            $datos['personal_reemplazo_id'] = null;
+            $datos['motivo_reemplazo'] = null;
+            $datos['es_descanso'] = false;
+        }
+
+        return $datos;
+    }
+
+    /**
      * Parsea errores de PostgreSQL.
      */
     private function parsearErrorPostgres(string $mensaje): string
@@ -310,6 +384,12 @@ class AsistenciaService
         }
         if (str_contains($mensaje, 'P0016')) {
             return 'Debe especificar el motivo del reemplazo.';
+        }
+        if (str_contains($mensaje, 'P0017')) {
+            return 'El personal no existe o está eliminado.';
+        }
+        if (str_contains($mensaje, 'P0018')) {
+            return 'El personal no está activo.';
         }
         if (str_contains($mensaje, 'asistencia_unica_dia')) {
             return 'Ya existe un registro de asistencia para esta fecha.';

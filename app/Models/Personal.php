@@ -41,6 +41,7 @@ class Personal extends Model
         'peso',
         'sabe_leer',
         'sabe_escribir',
+        'sabe_usar_computadora',
         'es_alergico',
         'alergias',
         'tipo_contratacion_id',
@@ -66,6 +67,7 @@ class Personal extends Model
             'salario_base' => 'decimal:2',
             'sabe_leer' => 'boolean',
             'sabe_escribir' => 'boolean',
+            'sabe_usar_computadora' => 'boolean',
             'es_alergico' => 'boolean',
         ];
     }

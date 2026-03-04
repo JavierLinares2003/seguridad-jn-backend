@@ -30,6 +30,7 @@ class CatalogosSeeder extends Seeder
             TipoDocumentoProyectoSeeder::class,
             PeriodicidadPagoSeeder::class,
             TipoDocumentoFacturacionSeeder::class,
+            MotivoAusenciaSeeder::class,
         ]);
     }
 }

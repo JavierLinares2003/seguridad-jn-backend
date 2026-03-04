@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Planillas;
 
+use App\Services\Planilla\Strategies\PlanillaCalculoStrategyFactory;
 use Illuminate\Foundation\Http\FormRequest;
 
 class GenerarPlanillaRequest extends FormRequest
@@ -23,7 +24,9 @@ class GenerarPlanillaRequest extends FormRequest
             'periodo_inicio' => 'required|date',
             'periodo_fin' => 'required|date|after:periodo_inicio',
             'proyecto_id' => 'nullable|exists:proyectos,id',
+            'departamento_id' => 'nullable|exists:departamentos,id',
             'observaciones' => 'nullable|string|max:1000',
+            'tipo_calculo' => 'sometimes|in:' . implode(',', PlanillaCalculoStrategyFactory::disponibles()),
         ];
     }
 
@@ -39,7 +42,9 @@ class GenerarPlanillaRequest extends FormRequest
             'periodo_fin.date' => 'La fecha de fin debe ser una fecha válida',
             'periodo_fin.after' => 'La fecha de fin debe ser posterior a la fecha de inicio',
             'proyecto_id.exists' => 'El proyecto seleccionado no existe',
+            'departamento_id.exists' => 'El departamento seleccionado no existe',
             'observaciones.max' => 'Las observaciones no pueden exceder 1000 caracteres',
+            'tipo_calculo.in' => 'El tipo de cálculo seleccionado no es válido. Disponibles: ' . implode(', ', PlanillaCalculoStrategyFactory::disponibles()),
         ];
     }
 }

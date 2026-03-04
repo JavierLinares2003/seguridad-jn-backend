@@ -68,9 +68,10 @@ class UpdatePersonalRequest extends FormRequest
             // Datos físicos
             'altura' => ['sometimes', 'required', 'numeric', 'min:0.5', 'max:2.5'],
             'tipo_sangre_id' => ['nullable', 'exists:tipos_sangre,id'],
-            'peso' => ['sometimes', 'required', 'numeric', 'min:50', 'max:500'],
+            'peso' => ['nullable', 'numeric', 'min:50', 'max:500'],
             'sabe_leer' => ['boolean'],
             'sabe_escribir' => ['boolean'],
+            'sabe_usar_computadora' => ['boolean'],
             'es_alergico' => ['boolean'],
             'alergias' => ['nullable', 'string', 'required_if:es_alergico,true'],
 

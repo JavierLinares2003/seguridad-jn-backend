@@ -299,6 +299,10 @@ Route::prefix('v1')->group(function () {
             Route::delete('/{personal}/documentos/{documento}', [PersonalDocumentoController::class, 'destroy'])
                 ->name('api.v1.personal.documentos.destroy');
 
+            // Historial de Movimientos (asistencia + transacciones)
+            Route::get('/{personal}/historial', [PersonalController::class, 'getHistorialMovimientos'])
+                ->name('api.v1.personal.historial');
+
             // Historial de Proyectos
             Route::get('/{personal}/proyectos', [PersonalController::class, 'getHistorialProyectos'])
                 ->name('api.v1.personal.proyectos');
@@ -323,6 +327,10 @@ Route::prefix('v1')->group(function () {
             // Asignaciones CRUD
             Route::get('/asignaciones', [OperacionPersonalAsignadoController::class, 'index'])
                 ->name('api.v1.operaciones.asignaciones.index');
+
+            // Proyectos con info para asignar (endpoint ligero)
+            Route::get('/asignaciones/proyectos', [OperacionPersonalAsignadoController::class, 'proyectosParaAsignar'])
+                ->name('api.v1.operaciones.asignaciones.proyectos');
 
             Route::post('/asignar-personal', [OperacionPersonalAsignadoController::class, 'store'])
                 ->name('api.v1.operaciones.asignar-personal');
@@ -362,23 +370,34 @@ Route::prefix('v1')->group(function () {
             // Asistencia
             // ========================================
 
-            // CRUD Asistencia
+            // Rutas específicas PRIMERO (antes de rutas con parámetros {id})
             Route::get('/asistencia', [OperacionAsistenciaController::class, 'index'])
                 ->name('api.v1.operaciones.asistencia.index');
 
             Route::post('/asistencia', [OperacionAsistenciaController::class, 'store'])
                 ->name('api.v1.operaciones.asistencia.store');
 
-            Route::get('/asistencia/{id}', [OperacionAsistenciaController::class, 'show'])
-                ->name('api.v1.operaciones.asistencia.show');
+            // Motivos de ausencia (catálogo)
+            Route::get('/asistencia/motivos-ausencia', [OperacionAsistenciaController::class, 'motivosAusencia'])
+                ->name('api.v1.operaciones.asistencia.motivos-ausencia');
 
-            Route::put('/asistencia/{id}', [OperacionAsistenciaController::class, 'update'])
-                ->name('api.v1.operaciones.asistencia.update');
+            // Vista agrupada (por proyecto o departamento)
+            Route::get('/asistencia/vista-agrupada', [OperacionAsistenciaController::class, 'vistaAgrupada'])
+                ->name('api.v1.operaciones.asistencia.vista-agrupada');
 
-            Route::delete('/asistencia/{id}', [OperacionAsistenciaController::class, 'destroy'])
-                ->name('api.v1.operaciones.asistencia.destroy');
+            // Reemplazos disponibles
+            Route::get('/asistencia/reemplazos-disponibles', [OperacionAsistenciaController::class, 'reemplazosDisponibles'])
+                ->name('api.v1.operaciones.asistencia.reemplazos-disponibles');
 
-            // Consultas de asistencia
+            // Descansos automáticos
+            Route::post('/asistencia/generar-descansos', [OperacionAsistenciaController::class, 'generarDescansos'])
+                ->name('api.v1.operaciones.asistencia.generar-descansos');
+
+            // Departamentos disponibles (personal sin asignar)
+            Route::get('/asistencia/departamentos-disponibles/{fecha}', [OperacionAsistenciaController::class, 'departamentosDisponibles'])
+                ->name('api.v1.operaciones.asistencia.departamentos-disponibles');
+
+            // Consultas con sub-rutas
             Route::get('/asistencia/fecha/{fecha}', [OperacionAsistenciaController::class, 'porFecha'])
                 ->name('api.v1.operaciones.asistencia.por-fecha');
 
@@ -391,20 +410,35 @@ Route::prefix('v1')->group(function () {
             Route::get('/asistencia/historial/{personalId}', [OperacionAsistenciaController::class, 'historialPersonal'])
                 ->name('api.v1.operaciones.asistencia.historial');
 
-            // Acciones de asistencia
+            // Calendario de turno
+            Route::get('/asistencia/calendario-turno/{personalAsignadoId}', [OperacionAsistenciaController::class, 'calendarioTurno'])
+                ->name('api.v1.operaciones.asistencia.calendario-turno');
+
+            // CRUD con {id} AL FINAL (para no capturar rutas específicas)
+            Route::get('/asistencia/{id}', [OperacionAsistenciaController::class, 'show'])
+                ->name('api.v1.operaciones.asistencia.show')
+                ->whereNumber('id');
+
+            Route::put('/asistencia/{id}', [OperacionAsistenciaController::class, 'update'])
+                ->name('api.v1.operaciones.asistencia.update')
+                ->whereNumber('id');
+
+            Route::delete('/asistencia/{id}', [OperacionAsistenciaController::class, 'destroy'])
+                ->name('api.v1.operaciones.asistencia.destroy')
+                ->whereNumber('id');
+
+            // Acciones sobre asistencia específica
             Route::post('/asistencia/{id}/entrada', [OperacionAsistenciaController::class, 'marcarEntrada'])
-                ->name('api.v1.operaciones.asistencia.entrada');
+                ->name('api.v1.operaciones.asistencia.entrada')
+                ->whereNumber('id');
 
             Route::post('/asistencia/{id}/salida', [OperacionAsistenciaController::class, 'marcarSalida'])
-                ->name('api.v1.operaciones.asistencia.salida');
+                ->name('api.v1.operaciones.asistencia.salida')
+                ->whereNumber('id');
 
-            // Descansos automáticos
-            Route::post('/asistencia/generar-descansos', [OperacionAsistenciaController::class, 'generarDescansos'])
-                ->name('api.v1.operaciones.asistencia.generar-descansos');
-
-            // Reemplazos disponibles
-            Route::get('/asistencia/reemplazos-disponibles', [OperacionAsistenciaController::class, 'reemplazosDisponibles'])
-                ->name('api.v1.operaciones.asistencia.reemplazos-disponibles');
+            Route::post('/asistencia/{id}/ausencia', [OperacionAsistenciaController::class, 'marcarAusencia'])
+                ->name('api.v1.operaciones.asistencia.ausencia')
+                ->whereNumber('id');
 
             // Préstamos
             Route::get('/prestamos', [PrestamoController::class, 'index'])
@@ -417,6 +451,8 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.operaciones.prestamos.cancelar');
             Route::get('/prestamos/{id}/historial', [PrestamoController::class, 'historial'])
                 ->name('api.v1.operaciones.prestamos.historial');
+            Route::get('/prestamos/{id}/resumen', [PrestamoController::class, 'resumen'])
+                ->name('api.v1.operaciones.prestamos.resumen');
 
             // Transacciones
             Route::get('/transacciones', [TransaccionController::class, 'index'])

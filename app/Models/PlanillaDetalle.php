@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PlanillaDetalle extends Model
 {
@@ -15,6 +16,7 @@ class PlanillaDetalle extends Model
         'proyecto_id',
         'dias_trabajados',
         'horas_trabajadas',
+        'horas_por_turno',
         'pago_por_hora',
         'salario_devengado',
         'bonificacion',
@@ -28,11 +30,13 @@ class PlanillaDetalle extends Model
         'total_descuentos',
         'salario_neto',
         'observaciones',
+        'tipo_calculo',
     ];
     
     protected $casts = [
         'dias_trabajados' => 'integer',
         'horas_trabajadas' => 'decimal:2',
+        'horas_por_turno' => 'decimal:2',
         'pago_por_hora' => 'decimal:2',
         'salario_devengado' => 'decimal:2',
         'bonificacion' => 'decimal:2',
@@ -69,6 +73,37 @@ class PlanillaDetalle extends Model
     public function proyecto(): BelongsTo
     {
         return $this->belongsTo(Proyecto::class);
+    }
+
+    /**
+     * Obtiene las transacciones del empleado en el período de la planilla.
+     * Esta relación requiere que la planilla esté cargada.
+     */
+    public function transacciones()
+    {
+        return Transaccion::where('personal_id', $this->personal_id)
+            ->whereHas('planillaDetalle', function ($q) {
+                $q->where('planillas_detalle.id', $this->id);
+            });
+    }
+
+    /**
+     * Obtiene las transacciones del empleado filtrando por el período de la planilla.
+     */
+    public function getTransaccionesDelPeriodoAttribute()
+    {
+        if (!$this->planilla) {
+            return collect();
+        }
+
+        return Transaccion::with('registradoPor')
+            ->where('personal_id', $this->personal_id)
+            ->whereBetween('fecha_transaccion', [
+                $this->planilla->periodo_inicio,
+                $this->planilla->periodo_fin
+            ])
+            ->where('es_descuento', true)
+            ->get();
     }
     
     /**

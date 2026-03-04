@@ -2,6 +2,10 @@
 
 namespace App\Providers;
 
+use App\Models\OperacionAsistencia;
+use App\Models\Transaccion;
+use App\Observers\OperacionAsistenciaObserver;
+use App\Observers\TransaccionObserver;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -19,6 +23,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Registrar observers para recalcular planillas automáticamente
+        OperacionAsistencia::observe(OperacionAsistenciaObserver::class);
+        Transaccion::observe(TransaccionObserver::class);
     }
 }

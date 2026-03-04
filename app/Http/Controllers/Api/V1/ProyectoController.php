@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreProyectoRequest;
 use App\Http\Requests\UpdateProyectoRequest;
+use App\Models\OperacionPersonalAsignado;
 use App\Models\Proyecto;
+use App\Models\ProyectoConfiguracionPersonal;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -47,9 +49,61 @@ class ProyectoController extends Controller implements HasMiddleware
             });
         }
 
-        $proyectos = $query->latest()->paginate(15);
+        $proyectos = $query->latest()->paginate($request->input('per_page', 15));
+
+        // Si se solicitan estadísticas, agregarlas a cada proyecto
+        if ($request->boolean('con_estadisticas')) {
+            $proyectos->getCollection()->transform(function ($proyecto) {
+                $proyecto->estadisticas_personal = $this->getEstadisticasProyecto($proyecto->id);
+                return $proyecto;
+            });
+        }
 
         return response()->json($proyectos);
+    }
+
+    /**
+     * Obtiene estadísticas de asignación de personal para un proyecto.
+     */
+    private function getEstadisticasProyecto(int $proyectoId): array
+    {
+        $configuraciones = ProyectoConfiguracionPersonal::where('proyecto_id', $proyectoId)
+            ->where('estado', 'activo')
+            ->get();
+
+        $estadisticas = [];
+
+        foreach ($configuraciones as $config) {
+            $asignadosActivos = OperacionPersonalAsignado::query()
+                ->where('estado_asignacion', 'activa')
+                ->where('configuracion_puesto_id', $config->id)
+                ->where('fecha_inicio', '<=', now())
+                ->where(function ($q) {
+                    $q->whereNull('fecha_fin')
+                      ->orWhere('fecha_fin', '>=', now());
+                })
+                ->count();
+
+            $estadisticas[] = [
+                'configuracion_id' => $config->id,
+                'nombre_puesto' => $config->nombre_puesto,
+                'cantidad_requerida' => $config->cantidad_requerida,
+                'cantidad_asignada' => $asignadosActivos,
+                'faltantes' => max(0, $config->cantidad_requerida - $asignadosActivos),
+                'porcentaje_cubierto' => $config->cantidad_requerida > 0
+                    ? round(($asignadosActivos / $config->cantidad_requerida) * 100, 2)
+                    : 0,
+            ];
+        }
+
+        return [
+            'puestos' => $estadisticas,
+            'resumen' => [
+                'total_requerido' => collect($estadisticas)->sum('cantidad_requerida'),
+                'total_asignado' => collect($estadisticas)->sum('cantidad_asignada'),
+                'total_faltantes' => collect($estadisticas)->sum('faltantes'),
+            ],
+        ];
     }
 
     public function store(StoreProyectoRequest $request): JsonResponse
@@ -83,15 +137,21 @@ class ProyectoController extends Controller implements HasMiddleware
         ], 201);
     }
 
-    public function show(Proyecto $proyecto): JsonResponse
+    public function show(Request $request, Proyecto $proyecto): JsonResponse
     {
         $proyecto->load([
             'tipoProyecto',
             'ubicacion.departamentoGeografico',
             'ubicacion.municipio',
             'facturacion.tipoDocumentoFacturacion',
-            'facturacion.periodicidadPago'
+            'facturacion.periodicidadPago',
+            'configuracionPersonal.tipoPersonal',
+            'configuracionPersonal.turno',
         ]);
+
+        // Siempre incluir estadísticas en el detalle del proyecto
+        $proyecto->estadisticas_personal = $this->getEstadisticasProyecto($proyecto->id);
+
         return response()->json($proyecto);
     }
 

@@ -54,6 +54,7 @@ class PersonalResource extends JsonResource
             'peso' => $this->peso,
             'sabe_leer' => $this->sabe_leer,
             'sabe_escribir' => $this->sabe_escribir,
+            'sabe_usar_computadora' => $this->sabe_usar_computadora,
             'es_alergico' => $this->es_alergico,
             'alergias' => $this->alergias,
 

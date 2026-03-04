@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Operaciones\StoreTransaccionRequest;
+use App\Models\Prestamo;
 use App\Models\Transaccion;
+use App\Services\PrestamoService;
 use Illuminate\Http\Request;
 
 class TransaccionController extends Controller
@@ -59,13 +61,56 @@ class TransaccionController extends Controller
     /**
      * Store a newly created transaction.
      */
-    public function store(StoreTransaccionRequest $request)
+    public function store(StoreTransaccionRequest $request, PrestamoService $prestamoService)
     {
         $data = $request->validated();
 
         // Set registrado_por_user_id to current user
         $data['registrado_por_user_id'] = auth()->id();
 
+        // Si es un abono a préstamo, usar el servicio de préstamos para manejar la lógica
+        if ($data['tipo_transaccion'] === 'abono_prestamo' && isset($data['prestamo_id'])) {
+            try {
+                $prestamo = Prestamo::findOrFail($data['prestamo_id']);
+
+                $resultado = $prestamoService->procesarAbono(
+                    $prestamo,
+                    $data['monto'],
+                    $data['descripcion'],
+                    auth()->id()
+                );
+
+                $transaccion = $resultado['transaccion'];
+                $transaccion->load(['personal', 'prestamo', 'asistencia', 'registradoPor']);
+
+                $mensaje = 'Abono realizado exitosamente.';
+
+                if ($resultado['tipo_abono'] === 'liquidacion_total') {
+                    $mensaje = '¡Préstamo liquidado completamente! Se cancelaron las cuotas restantes.';
+                } elseif ($resultado['tipo_abono'] === 'abono_extra') {
+                    $mensaje = 'Abono extra realizado. Se recalcularon las cuotas restantes.';
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'message' => $mensaje,
+                    'data' => $transaccion,
+                    'info_prestamo' => [
+                        'tipo_abono' => $resultado['tipo_abono'],
+                        'cuotas_recalculadas' => $resultado['cuotas_recalculadas'],
+                        'saldo_pendiente' => $prestamo->fresh()->saldo_pendiente,
+                    ],
+                ], 201);
+
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al procesar el abono: ' . $e->getMessage(),
+                ], 422);
+            }
+        }
+
+        // Para otros tipos de transacciones, crear normalmente
         $transaccion = Transaccion::create($data);
 
         // Load relationships

@@ -6,6 +6,7 @@ use App\Traits\AuditableModel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\Catalogos\Departamento;
 
 class Planilla extends Model
 {
@@ -27,6 +28,9 @@ class Planilla extends Model
         'aprobado_por_user_id',
         'fecha_aprobacion',
         'observaciones',
+        'tipo_calculo',
+        'proyecto_id',
+        'departamento_id',
     ];
     
     protected $casts = [
@@ -61,6 +65,22 @@ class Planilla extends Model
     {
         return $this->belongsTo(User::class, 'aprobado_por_user_id');
     }
+
+    /**
+     * Proyecto asociado a la planilla
+     */
+    public function proyecto(): BelongsTo
+    {
+        return $this->belongsTo(Proyecto::class);
+    }
+
+    /**
+     * Departamento asociado a la planilla
+     */
+    public function departamento(): BelongsTo
+    {
+        return $this->belongsTo(Departamento::class);
+    }
     
     /**
      * Scope para planillas en borrador
@@ -93,6 +113,47 @@ class Planilla extends Model
     {
         return $query->where('periodo_inicio', $inicio)
                      ->where('periodo_fin', $fin);
+    }
+
+    /**
+     * Scope para planillas activas (no canceladas)
+     */
+    public function scopeActiva($query)
+    {
+        return $query->where('estado_planilla', '!=', 'cancelada');
+    }
+
+    /**
+     * Scope para filtrar por ámbito (proyecto y/o departamento)
+     */
+    public function scopePorAmbito($query, ?int $proyectoId, ?int $departamentoId)
+    {
+        return $query->where(function ($q) use ($proyectoId) {
+            if ($proyectoId) {
+                $q->where('proyecto_id', $proyectoId);
+            } else {
+                $q->whereNull('proyecto_id');
+            }
+        })->where(function ($q) use ($departamentoId) {
+            if ($departamentoId) {
+                $q->where('departamento_id', $departamentoId);
+            } else {
+                $q->whereNull('departamento_id');
+            }
+        });
+    }
+
+    /**
+     * Scope para verificar traslape de fechas
+     * Encuentra planillas que se solapan con el rango dado
+     */
+    public function scopeConTraslapeFechas($query, $inicio, $fin)
+    {
+        return $query->where(function ($q) use ($inicio, $fin) {
+            // Hay traslape si: inicio_existente <= fin_nuevo AND fin_existente >= inicio_nuevo
+            $q->where('periodo_inicio', '<=', $fin)
+              ->where('periodo_fin', '>=', $inicio);
+        });
     }
     
     /**

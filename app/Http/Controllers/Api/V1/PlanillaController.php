@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Exports\PlanillaExport;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Planillas\GenerarPlanillaRequest;
 use App\Models\Planilla;
 use App\Services\PlanillaService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Maatwebsite\Excel\Facades\Excel;
 
 class PlanillaController extends Controller
 {
@@ -31,7 +33,9 @@ class PlanillaController extends Controller
                 $request->periodo_inicio,
                 $request->periodo_fin,
                 $request->proyecto_id,
-                $request->observaciones
+                $request->observaciones,
+                $request->tipo_calculo,
+                $request->departamento_id
             );
 
             return response()->json([
@@ -56,7 +60,7 @@ class PlanillaController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Planilla::with(['creadoPor', 'aprobadoPor']);
+        $query = Planilla::with(['creadoPor', 'aprobadoPor', 'proyecto', 'departamento']);
 
         // Filtros
         if ($request->has('estado_planilla')) {
@@ -69,6 +73,23 @@ class PlanillaController extends Controller
 
         if ($request->has('periodo_fin')) {
             $query->where('periodo_fin', '<=', $request->periodo_fin);
+        }
+
+        // Filtros por ámbito
+        if ($request->has('proyecto_id')) {
+            if ($request->proyecto_id === 'null' || $request->proyecto_id === '') {
+                $query->whereNull('proyecto_id');
+            } else {
+                $query->where('proyecto_id', $request->proyecto_id);
+            }
+        }
+
+        if ($request->has('departamento_id')) {
+            if ($request->departamento_id === 'null' || $request->departamento_id === '') {
+                $query->whereNull('departamento_id');
+            } else {
+                $query->where('departamento_id', $request->departamento_id);
+            }
         }
 
         // Ordenar por fecha de creación descendente
@@ -101,9 +122,24 @@ class PlanillaController extends Controller
         $planilla = Planilla::with([
             'detalles.personal',
             'detalles.proyecto',
+            'detalles.planilla', // Necesario para el accessor de transacciones
             'creadoPor',
-            'aprobadoPor'
+            'aprobadoPor',
+            'proyecto',
+            'departamento'
         ])->findOrFail($id);
+
+        // Agregar las transacciones con el usuario que las registró a cada detalle
+        $planilla->detalles->each(function ($detalle) use ($planilla) {
+            $detalle->transacciones = \App\Models\Transaccion::with('registradoPor:id,name')
+                ->where('personal_id', $detalle->personal_id)
+                ->whereBetween('fecha_transaccion', [
+                    $planilla->periodo_inicio,
+                    $planilla->periodo_fin
+                ])
+                ->where('es_descuento', true)
+                ->get();
+        });
 
         return response()->json([
             'success' => true,
@@ -192,55 +228,40 @@ class PlanillaController extends Controller
 
     /**
      * Exportar planilla a Excel o PDF
-     * 
-     * @param int $id
-     * @param string $formato
-     * @return mixed
+     *
+     * GET /api/v1/operaciones/planillas/{id}/export/{formato}
      */
     public function export(int $id, string $formato)
     {
-        $planilla = Planilla::with([
-            'detalles.personal',
-            'detalles.proyecto'
-        ])->findOrFail($id);
+        if (!in_array($formato, ['excel', 'pdf'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Formato no soportado. Use "excel" o "pdf".',
+            ], 400);
+        }
+
+        $planilla = Planilla::findOrFail($id);
 
         if ($formato === 'excel') {
             return $this->exportarExcel($planilla);
-        } elseif ($formato === 'pdf') {
-            return $this->exportarPDF($planilla);
         }
 
+        return $this->exportarPDF($planilla);
+    }
+
+    private function exportarExcel(Planilla $planilla)
+    {
+        $nombre = 'planilla_' . $planilla->id . '_' . $planilla->periodo_inicio->format('Y-m') . '.xlsx';
+
+        return Excel::download(new PlanillaExport($planilla), $nombre);
+    }
+
+    private function exportarPDF(Planilla $planilla)
+    {
+        // TODO: Implementar exportación a PDF
         return response()->json([
             'success' => false,
-            'message' => 'Formato no soportado. Use "excel" o "pdf"',
-        ], 400);
-    }
-
-    /**
-     * Exportar a Excel (implementación básica)
-     */
-    private function exportarExcel($planilla)
-    {
-        // TODO: Implementar exportación a Excel usando Laravel Excel
-        // Por ahora, retornar JSON
-        return response()->json([
-            'success' => true,
-            'message' => 'Exportación a Excel pendiente de implementar',
-            'data' => $planilla,
-        ]);
-    }
-
-    /**
-     * Exportar a PDF (implementación básica)
-     */
-    private function exportarPDF($planilla)
-    {
-        // TODO: Implementar exportación a PDF usando DomPDF o similar
-        // Por ahora, retornar JSON
-        return response()->json([
-            'success' => true,
-            'message' => 'Exportación a PDF pendiente de implementar',
-            'data' => $planilla,
-        ]);
+            'message' => 'Exportación a PDF pendiente de implementar.',
+        ], 501);
     }
 }

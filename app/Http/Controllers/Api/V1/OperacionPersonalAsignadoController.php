@@ -26,7 +26,7 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:view-operaciones', only: ['index', 'show', 'personalDisponible', 'calendario', 'estadisticas']),
+            new Middleware('permission:view-operaciones', only: ['index', 'show', 'personalDisponible', 'calendario', 'estadisticas', 'proyectosParaAsignar']),
             new Middleware('permission:manage-asignaciones', only: ['store', 'update', 'destroy', 'finalizar', 'suspender', 'reactivar']),
         ];
     }
@@ -123,7 +123,7 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
         
         // Si no cumple requisitos, verificar si se está forzando la asignación
         if (!$requisitos['cumple']) {
-            // Si no se está forzando, retornar advertencia (no error)
+            // Si no se está forzando, retornar advertencia (con código 200 para que frontend pueda procesar)
             if (!$request->input('force_assignment', false)) {
                 return response()->json([
                     'success' => false,
@@ -131,10 +131,11 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
                     'errores' => $requisitos['errores'],
                     'detalles' => $requisitos['detalles'] ?? null,
                     'requiere_confirmacion' => true,
-                ], 422);
+                ], 200);
             }
-            
-            // Si se está forzando, guardar las advertencias
+
+            // Si se está forzando, marcar que se forzaron los requisitos
+            $validated['requisitos_forzados'] = true;
             $warnings = $requisitos['errores'];
         }
 
@@ -443,6 +444,124 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
             'success' => true,
             'message' => 'Asignación reactivada correctamente.',
             'data' => $asignacion,
+        ]);
+    }
+
+    /**
+     * Lista proyectos con información para asignaciones.
+     * Endpoint ligero específico para el módulo de asignaciones.
+     *
+     * GET /api/v1/operaciones/asignaciones/proyectos
+     */
+    public function proyectosParaAsignar(Request $request): JsonResponse
+    {
+        $request->validate([
+            'search' => 'nullable|string|max:100',
+            'estado' => 'nullable|string|in:planificacion,activo,suspendido,finalizado',
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
+
+        $query = Proyecto::query()
+            ->select([
+                'id',
+                'correlativo',
+                'nombre_proyecto',
+                'empresa_cliente',
+                'estado_proyecto',
+                'fecha_inicio_real',
+                'fecha_fin_real',
+            ]);
+
+        // Filtrar por estado: si se especifica uno, usar ese; sino, default a planificacion/activo
+        if ($request->filled('estado')) {
+            $query->where('estado_proyecto', $request->input('estado'));
+        } else {
+            $query->whereIn('estado_proyecto', ['planificacion', 'activo']);
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('nombre_proyecto', 'ilike', "%{$search}%")
+                  ->orWhere('correlativo', 'ilike', "%{$search}%")
+                  ->orWhere('empresa_cliente', 'ilike', "%{$search}%");
+            });
+        }
+
+        $proyectos = $query->orderBy('nombre_proyecto')
+            ->paginate($request->input('per_page', 15));
+
+        // Agregar información de asignaciones a cada proyecto
+        $proyectos->getCollection()->transform(function ($proyecto) {
+            // Obtener configuraciones de puestos
+            $configuraciones = ProyectoConfiguracionPersonal::with('tipoPersonal')
+                ->where('proyecto_id', $proyecto->id)
+                ->where('estado', 'activo')
+                ->get();
+
+            // Obtener asignaciones activas (incluye futuras para planificación)
+            $asignaciones = OperacionPersonalAsignado::with([
+                'personal:id,nombres,apellidos,dpi,telefono,foto_perfil',
+                'turno:id,nombre,hora_inicio,hora_fin',
+                'configuracionPuesto:id,nombre_puesto',
+            ])
+                ->where('proyecto_id', $proyecto->id)
+                ->where('estado_asignacion', 'activa')
+                ->get();
+
+            // Calcular estadísticas por puesto
+            $puestos = $configuraciones->map(function ($config) use ($asignaciones) {
+                $asignadosEnPuesto = $asignaciones->where('configuracion_puesto_id', $config->id);
+
+                return [
+                    'configuracion_id' => $config->id,
+                    'nombre_puesto' => $config->nombre_puesto,
+                    'tipo_personal' => $config->tipoPersonal?->nombre,
+                    'cantidad_requerida' => $config->cantidad_requerida,
+                    'cantidad_asignada' => $asignadosEnPuesto->count(),
+                    'faltantes' => max(0, $config->cantidad_requerida - $asignadosEnPuesto->count()),
+                    'asignados' => $asignadosEnPuesto->map(fn($a) => [
+                        'asignacion_id' => $a->id,
+                        'personal' => $a->personal ? [
+                            'id' => $a->personal->id,
+                            'nombre_completo' => $a->personal->nombre_completo,
+                            'dpi' => $a->personal->dpi,
+                            'telefono' => $a->personal->telefono,
+                            'iniciales' => $a->personal->iniciales,
+                            'foto_url' => $a->personal->foto_url,
+                        ] : null,
+                        'turno' => $a->turno ? [
+                            'id' => $a->turno->id,
+                            'nombre' => $a->turno->nombre,
+                            'horario' => $a->turno->hora_inicio . ' - ' . $a->turno->hora_fin,
+                        ] : null,
+                        'fecha_inicio' => $a->fecha_inicio?->toDateString(),
+                        'fecha_fin' => $a->fecha_fin?->toDateString(),
+                    ])->values(),
+                ];
+            });
+
+            return [
+                'id' => $proyecto->id,
+                'correlativo' => $proyecto->correlativo,
+                'nombre' => $proyecto->nombre_proyecto,
+                'empresa_cliente' => $proyecto->empresa_cliente,
+                'estado' => $proyecto->estado_proyecto,
+                'puestos' => $puestos,
+                'resumen' => [
+                    'total_requerido' => $puestos->sum('cantidad_requerida'),
+                    'total_asignado' => $puestos->sum('cantidad_asignada'),
+                    'total_faltantes' => $puestos->sum('faltantes'),
+                    'porcentaje_cubierto' => $puestos->sum('cantidad_requerida') > 0
+                        ? round(($puestos->sum('cantidad_asignada') / $puestos->sum('cantidad_requerida')) * 100, 1)
+                        : 100,
+                ],
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $proyectos,
         ]);
     }
 

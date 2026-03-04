@@ -1118,6 +1118,206 @@ class PersonalController extends Controller
     }
 
     /**
+     * Get historial de movimientos (asistencia + transacciones) del personal para una planilla.
+     *
+     * GET /api/v1/personal/{id}/historial
+     */
+    public function getHistorialMovimientos(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'planilla_id' => 'required|integer|exists:planillas,id',
+            'tipo' => 'nullable|in:asistencia,transaccion,todos',
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
+
+        $personal = Personal::find($id);
+
+        if (!$personal) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Personal no encontrado.',
+                'error' => 'not_found',
+            ], 404);
+        }
+
+        // Obtener la planilla y sus fechas
+        $planilla = \App\Models\Planilla::findOrFail($request->input('planilla_id'));
+        $fechaInicio = $planilla->periodo_inicio;
+        $fechaFin = $planilla->periodo_fin;
+
+        $tipo = $request->input('tipo', 'todos');
+        $movimientos = collect();
+
+        // Obtener asistencias
+        if ($tipo === 'todos' || $tipo === 'asistencia') {
+            $asistencias = \App\Models\OperacionAsistencia::query()
+                ->where(function ($q) use ($id) {
+                    // Asistencia con asignación
+                    $q->whereHas('asignacion', function ($q2) use ($id) {
+                        $q2->where('personal_id', $id);
+                    })
+                    // O asistencia directa
+                    ->orWhere('personal_id', $id);
+                })
+                ->whereBetween('fecha_asistencia', [$fechaInicio, $fechaFin])
+                ->with([
+                    'asignacion.proyecto:id,nombre_proyecto',
+                    'asignacion.turno:id,nombre',
+                    'registradoPor:id,name',
+                ])
+                ->get()
+                ->map(function ($asistencia) {
+                    return [
+                        'tipo' => 'asistencia',
+                        'id' => $asistencia->id,
+                        'fecha' => $asistencia->fecha_asistencia->format('Y-m-d'),
+                        'fecha_orden' => $asistencia->fecha_asistencia->format('Y-m-d H:i:s'),
+                        'descripcion' => $this->getDescripcionAsistencia($asistencia),
+                        'estado' => $asistencia->estado_dia,
+                        'proyecto' => $asistencia->asignacion?->proyecto?->nombre_proyecto ?? 'Sin asignación',
+                        'turno' => $asistencia->asignacion?->turno?->nombre ?? null,
+                        'hora_entrada' => $asistencia->hora_entrada?->format('H:i'),
+                        'hora_salida' => $asistencia->hora_salida?->format('H:i'),
+                        'horas_trabajadas' => $asistencia->horas_trabajadas,
+                        'monto' => null,
+                        'es_descuento' => false,
+                        'registrado_por' => $asistencia->registradoPor
+                            ? ['id' => $asistencia->registradoPor->id, 'name' => $asistencia->registradoPor->name]
+                            : null,
+                    ];
+                });
+
+            $movimientos = $movimientos->merge($asistencias);
+        }
+
+        // Obtener transacciones
+        if ($tipo === 'todos' || $tipo === 'transaccion') {
+            $transacciones = \App\Models\Transaccion::where('personal_id', $id)
+                ->whereBetween('fecha_transaccion', [$fechaInicio, $fechaFin])
+                ->with([
+                    'prestamo:id,monto_total,saldo_pendiente',
+                    'registradoPor:id,name',
+                ])
+                ->get()
+                ->map(function ($transaccion) {
+                    return [
+                        'tipo' => 'transaccion',
+                        'id' => $transaccion->id,
+                        'fecha' => $transaccion->fecha_transaccion->format('Y-m-d'),
+                        'fecha_orden' => $transaccion->fecha_transaccion->format('Y-m-d') . ' 23:59:59',
+                        'descripcion' => $transaccion->descripcion ?? $transaccion->tipo_label,
+                        'estado' => $transaccion->estado_transaccion,
+                        'tipo_transaccion' => $transaccion->tipo_transaccion,
+                        'tipo_label' => $transaccion->tipo_label,
+                        'proyecto' => null,
+                        'turno' => null,
+                        'hora_entrada' => null,
+                        'hora_salida' => null,
+                        'horas_trabajadas' => null,
+                        'monto' => (float) $transaccion->monto,
+                        'es_descuento' => $transaccion->es_descuento,
+                        'prestamo' => $transaccion->prestamo ? [
+                            'id' => $transaccion->prestamo->id,
+                            'monto_total' => $transaccion->prestamo->monto_total,
+                            'saldo_pendiente' => $transaccion->prestamo->saldo_pendiente,
+                        ] : null,
+                        'registrado_por' => $transaccion->registradoPor
+                            ? ['id' => $transaccion->registradoPor->id, 'name' => $transaccion->registradoPor->name]
+                            : null,
+                    ];
+                });
+
+            $movimientos = $movimientos->merge($transacciones);
+        }
+
+        // Ordenar por fecha (de menos a más reciente)
+        $movimientos = $movimientos->sortBy('fecha_orden')->values();
+
+        // Calcular resumen
+        $resumen = [
+            'dias_trabajados' => $movimientos->where('tipo', 'asistencia')
+                ->whereIn('estado', ['presente', 'tarde'])
+                ->count(),
+            'dias_ausente' => $movimientos->where('tipo', 'asistencia')
+                ->whereIn('estado', ['ausente_justificado', 'ausente_injustificado'])
+                ->count(),
+            'dias_descanso' => $movimientos->where('tipo', 'asistencia')
+                ->where('estado', 'descanso')
+                ->count(),
+            'total_descuentos' => $movimientos->where('tipo', 'transaccion')
+                ->where('es_descuento', true)
+                ->where('estado', '!=', 'cancelado')
+                ->sum('monto'),
+            'total_ingresos' => $movimientos->where('tipo', 'transaccion')
+                ->where('es_descuento', false)
+                ->where('estado', '!=', 'cancelado')
+                ->sum('monto'),
+        ];
+
+        // Paginar si se solicita
+        $perPage = $request->input('per_page');
+        if ($perPage) {
+            $page = $request->input('page', 1);
+            $total = $movimientos->count();
+            $movimientos = $movimientos->forPage($page, $perPage)->values();
+
+            return response()->json([
+                'success' => true,
+                'data' => $movimientos,
+                'resumen' => $resumen,
+                'planilla' => [
+                    'id' => $planilla->id,
+                    'nombre' => $planilla->nombre_planilla,
+                    'periodo_inicio' => $fechaInicio->toDateString(),
+                    'periodo_fin' => $fechaFin->toDateString(),
+                    'estado' => $planilla->estado_planilla,
+                ],
+                'meta' => [
+                    'total' => $total,
+                    'per_page' => $perPage,
+                    'current_page' => $page,
+                    'last_page' => ceil($total / $perPage),
+                ],
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $movimientos,
+            'resumen' => $resumen,
+            'planilla' => [
+                'id' => $planilla->id,
+                'nombre' => $planilla->nombre_planilla,
+                'periodo_inicio' => $fechaInicio->toDateString(),
+                'periodo_fin' => $fechaFin->toDateString(),
+                'estado' => $planilla->estado_planilla,
+            ],
+            'meta' => [
+                'total' => $movimientos->count(),
+            ],
+        ]);
+    }
+
+    /**
+     * Genera descripción legible para un registro de asistencia.
+     */
+    private function getDescripcionAsistencia(\App\Models\OperacionAsistencia $asistencia): string
+    {
+        $estado = $asistencia->estado_dia;
+
+        return match ($estado) {
+            'presente' => 'Asistencia registrada',
+            'tarde' => "Llegada tarde ({$asistencia->minutos_retraso} min)",
+            'descanso' => 'Día de descanso',
+            'ausente_justificado' => 'Ausencia justificada',
+            'ausente_injustificado' => 'Ausencia injustificada',
+            'reemplazado' => 'Fue reemplazado',
+            'sin_registro' => 'Sin registro de asistencia',
+            default => 'Asistencia',
+        };
+    }
+
+    /**
      * Get historial de proyectos asignados al personal.
      *
      * GET /api/v1/personal/{id}/proyectos

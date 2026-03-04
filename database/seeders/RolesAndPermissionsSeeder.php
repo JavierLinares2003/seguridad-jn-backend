@@ -2,7 +2,9 @@
 
 namespace Database\Seeders;
 
+use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\PermissionRegistrar;
@@ -98,29 +100,20 @@ class RolesAndPermissionsSeeder extends Seeder
         $this->createOperadorRole();
         $this->createGestorPersonalRole();
         $this->createGestorProyectosRole();
+        $this->createContabilidadRole();
+        $this->createOperacionesRole();
+
+        // Create/Update users
+        $this->createUsers();
     }
 
     /**
-     * Create admin role with all permissions except Operations module.
+     * Create admin role with all permissions.
      */
     private function createAdminRole(array $allPermissions): void
     {
-        // Exclude Operations module permissions temporarily
-        $excludedPermissions = [
-            'view-operaciones',
-            'manage-asistencia',
-            'manage-asignaciones',
-            'manage-transacciones',
-            'manage-prestamos',
-            'view-alertas-cobertura',
-        ];
-
-        $adminPermissions = array_filter($allPermissions, function ($permission) use ($excludedPermissions) {
-            return !in_array($permission, $excludedPermissions);
-        });
-
         $admin = Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
-        $admin->syncPermissions($adminPermissions);
+        $admin->syncPermissions($allPermissions);
     }
 
     /**
@@ -246,5 +239,124 @@ class RolesAndPermissionsSeeder extends Seeder
             // Catalogs (view only - needed for forms)
             'view-catalogos',
         ]);
+    }
+
+    /**
+     * Create contabilidad role.
+     * Tiene acceso a planilla, proyectos (solo ver), asistencia (solo ver) y personal (solo ver).
+     * NO puede crear proyectos ni personal.
+     */
+    private function createContabilidadRole(): void
+    {
+        $contabilidad = Role::firstOrCreate(['name' => 'contabilidad', 'guard_name' => 'web']);
+        $contabilidad->syncPermissions([
+            // Personal (solo ver - no puede crear ni editar)
+            'view-personal',
+            'view-documentos',
+            'download-documentos',
+
+            // Projects (solo ver - no puede crear)
+            'view-proyectos',
+
+            // Operations (solo ver asistencia)
+            'view-operaciones',
+
+            // Payroll (acceso completo)
+            'view-planillas',
+            'create-planillas',
+            'approve-planillas',
+            'export-planillas',
+            'cancel-planillas',
+            'mark-planillas-paid',
+
+            // Transacciones y préstamos (acceso completo)
+            'manage-transacciones',
+            'manage-prestamos',
+
+            // Catalogs (view only - needed for forms)
+            'view-catalogos',
+        ]);
+    }
+
+    /**
+     * Create operaciones role.
+     * Tiene acceso a personal (solo ver), proyectos (solo ver) y asistencia (manejar).
+     * NO puede crear personal ni proyectos.
+     * NO puede ver información relacionada con dinero.
+     */
+    private function createOperacionesRole(): void
+    {
+        $operaciones = Role::firstOrCreate(['name' => 'operaciones', 'guard_name' => 'web']);
+        $operaciones->syncPermissions([
+            // Personal (solo ver básico - no puede crear ni editar, ni ver salarios)
+            'view-personal',
+            'view-documentos',
+            'download-documentos',
+
+            // Projects (solo ver - no puede crear, ni ver configuración de costos)
+            'view-proyectos',
+
+            // Operations (acceso completo a asistencia y asignaciones)
+            'view-operaciones',
+            'manage-asistencia',
+            'manage-asignaciones',
+            'view-alertas-cobertura',
+
+            // Catalogs (view only - needed for forms)
+            'view-catalogos',
+        ]);
+    }
+
+    /**
+     * Crear o actualizar usuarios de ejemplo para cada rol.
+     */
+    private function createUsers(): void
+    {
+        // Usuario Admin - Actualizar todos los admins existentes
+        User::whereHas('roles', function ($query) {
+            $query->where('name', 'admin');
+        })->each(function ($admin) {
+            $admin->syncRoles(['admin']);
+        });
+
+        // Crear admin principal si no existe
+        $admin = User::updateOrCreate(
+            ['email' => 'admin@seguridadjn.com'],
+            [
+                'name' => 'Administrador',
+                'password' => Hash::make('password'),
+            ]
+        );
+        $admin->syncRoles(['admin']);
+
+        // Usuario Contabilidad
+        $contabilidad = User::updateOrCreate(
+            ['email' => 'contabilidad@seguridadjn.com'],
+            [
+                'name' => 'Usuario Contabilidad',
+                'password' => Hash::make('password'),
+            ]
+        );
+        $contabilidad->syncRoles(['contabilidad']);
+
+        // Usuario Operaciones
+        $operaciones = User::updateOrCreate(
+            ['email' => 'operaciones@seguridadjn.com'],
+            [
+                'name' => 'Usuario Operaciones',
+                'password' => Hash::make('password'),
+            ]
+        );
+        $operaciones->syncRoles(['operaciones']);
+
+        // Usuario Supervisor
+        $supervisor = User::updateOrCreate(
+            ['email' => 'supervisor@seguridadjn.com'],
+            [
+                'name' => 'Usuario Supervisor',
+                'password' => Hash::make('password'),
+            ]
+        );
+        $supervisor->syncRoles(['supervisor']);
     }
 }

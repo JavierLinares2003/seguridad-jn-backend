@@ -22,7 +22,7 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
 
     public function index(Proyecto $proyecto): JsonResponse
     {
-        return response()->json($proyecto->configuracionPersonal()->with('tipoPersonal')->get());
+        return response()->json($proyecto->configuracionPersonal()->with(['tipoPersonal', 'turno'])->get());
     }
 
     public function store(Request $request, Proyecto $proyecto): JsonResponse

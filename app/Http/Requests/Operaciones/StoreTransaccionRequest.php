@@ -28,6 +28,7 @@ class StoreTransaccionRequest extends FormRequest
             'fecha_transaccion' => ['nullable', 'date'],
             'es_descuento' => ['nullable', 'boolean'],
             'estado_transaccion' => ['nullable', Rule::in(['pendiente', 'aplicado', 'cancelado'])],
+            // Para abonos a préstamo, el prestamo_id se asigna automáticamente al préstamo activo del personal
             'prestamo_id' => ['nullable', 'exists:operaciones_prestamos,id'],
         ];
     }
@@ -53,29 +54,25 @@ class StoreTransaccionRequest extends FormRequest
         $validator->after(function ($validator) {
             // Validar abonos a préstamos
             if ($this->tipo_transaccion === 'abono_prestamo') {
-                if (!$this->prestamo_id) {
-                    $validator->errors()->add('prestamo_id', 
-                        'El préstamo es requerido para abonos.');
+                // Buscar el préstamo activo del personal automáticamente
+                $prestamoActivo = \App\Models\Prestamo::where('personal_id', $this->personal_id)
+                    ->where('estado_prestamo', 'activo')
+                    ->first();
+
+                if (!$prestamoActivo) {
+                    $validator->errors()->add('personal_id',
+                        'El personal no tiene un préstamo activo al cual realizar el abono.');
                     return;
                 }
-                
-                $prestamo = \App\Models\Prestamo::find($this->prestamo_id);
-                
-                if (!$prestamo) {
-                    $validator->errors()->add('prestamo_id', 
-                        'El préstamo no existe.');
-                    return;
-                }
-                
-                if ($prestamo->estado_prestamo !== 'activo') {
-                    $validator->errors()->add('prestamo_id', 
-                        'Solo se pueden hacer abonos a préstamos activos.');
-                }
-                
-                if ($this->monto > $prestamo->saldo_pendiente) {
-                    $validator->errors()->add('monto', 
-                        'El monto del abono no puede exceder el saldo pendiente del préstamo (Q' . 
-                        number_format($prestamo->saldo_pendiente, 2) . ').');
+
+                // Establecer automáticamente el prestamo_id
+                $this->merge(['prestamo_id' => $prestamoActivo->id]);
+
+                // Validar que el monto no exceda el saldo pendiente
+                if ($this->monto > $prestamoActivo->saldo_pendiente) {
+                    $validator->errors()->add('monto',
+                        'El monto del abono no puede exceder el saldo pendiente del préstamo (Q' .
+                        number_format($prestamoActivo->saldo_pendiente, 2) . ').');
                 }
             }
         });

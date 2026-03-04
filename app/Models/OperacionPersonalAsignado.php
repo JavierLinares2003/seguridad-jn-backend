@@ -30,6 +30,7 @@ class OperacionPersonalAsignado extends Model
         'estado_asignacion',
         'motivo_suspension',
         'notas',
+        'requisitos_forzados',
     ];
 
     protected function casts(): array
@@ -37,6 +38,7 @@ class OperacionPersonalAsignado extends Model
         return [
             'fecha_inicio' => 'date',
             'fecha_fin' => 'date',
+            'requisitos_forzados' => 'boolean',
         ];
     }
 

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Operaciones\StorePrestamoRequest;
 use App\Models\Prestamo;
+use App\Services\PrestamoService;
 use Illuminate\Http\Request;
 
 class PrestamoController extends Controller
@@ -49,7 +50,7 @@ class PrestamoController extends Controller
     /**
      * Store a newly created loan.
      */
-    public function store(StorePrestamoRequest $request)
+    public function store(StorePrestamoRequest $request, PrestamoService $prestamoService)
     {
         $data = $request->validated();
 
@@ -61,13 +62,20 @@ class PrestamoController extends Controller
 
         $prestamo = Prestamo::create($data);
 
+        // Generar cuotas automáticas si tiene cuotas definidas
+        $cuotasGeneradas = 0;
+        if ($prestamo->cuotas_totales > 0 && $prestamo->monto_cuota > 0) {
+            $cuotasGeneradas = $prestamoService->generarCuotasAutomaticas($prestamo, auth()->id());
+        }
+
         // Load relationships
         $prestamo->load(['personal', 'aprobadoPor']);
 
         return response()->json([
             'success' => true,
-            'message' => 'Préstamo creado exitosamente.',
+            'message' => 'Préstamo creado exitosamente.' . ($cuotasGeneradas > 0 ? " Se generaron {$cuotasGeneradas} cuotas automáticas." : ''),
             'data' => $prestamo,
+            'cuotas_generadas' => $cuotasGeneradas,
         ], 201);
     }
 
@@ -131,6 +139,21 @@ class PrestamoController extends Controller
                 'prestamo' => $prestamo,
                 'transacciones' => $transacciones,
             ],
+        ]);
+    }
+
+    /**
+     * GET /api/v1/prestamos/{id}/resumen
+     * Obtiene un resumen detallado del estado del préstamo.
+     */
+    public function resumen($id, PrestamoService $prestamoService)
+    {
+        $prestamo = Prestamo::findOrFail($id);
+        $resumen = $prestamoService->obtenerResumenPrestamo($prestamo);
+
+        return response()->json([
+            'success' => true,
+            'data' => $resumen,
         ]);
     }
 }

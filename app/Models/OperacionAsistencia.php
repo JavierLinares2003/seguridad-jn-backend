@@ -21,6 +21,7 @@ class OperacionAsistencia extends Model
 
     protected $fillable = [
         'personal_asignado_id',
+        'personal_id', // Para asistencia sin asignación
         'fecha_asistencia',
         'hora_entrada',
         'hora_salida',
@@ -32,6 +33,14 @@ class OperacionAsistencia extends Model
         'motivo_reemplazo',
         'observaciones',
         'registrado_por_user_id',
+        // Campos de ausencia
+        'motivo_ausencia_id',
+        'descripcion_ausencia',
+        'tipo_ausencia',
+        'es_ausente',
+        // Campos de planilla
+        'planilla_id',
+        'procesado_planilla',
     ];
 
     protected function casts(): array
@@ -44,6 +53,8 @@ class OperacionAsistencia extends Model
             'minutos_retraso' => 'integer',
             'es_descanso' => 'boolean',
             'fue_reemplazado' => 'boolean',
+            'es_ausente' => 'boolean',
+            'procesado_planilla' => 'boolean',
         ];
     }
 
@@ -88,8 +99,12 @@ class OperacionAsistencia extends Model
                     return 'reemplazado';
                 }
 
+                if ($this->es_ausente) {
+                    return $this->tipo_ausencia === 'justificada' ? 'ausente_justificado' : 'ausente_injustificado';
+                }
+
                 if (!$this->hora_entrada) {
-                    return 'ausente';
+                    return 'sin_registro';
                 }
 
                 if ($this->llego_tarde) {
@@ -112,6 +127,22 @@ class OperacionAsistencia extends Model
         return $this->belongsTo(OperacionPersonalAsignado::class, 'personal_asignado_id');
     }
 
+    /**
+     * Relación directa con personal (para asistencia sin asignación).
+     */
+    public function personal(): BelongsTo
+    {
+        return $this->belongsTo(Personal::class, 'personal_id');
+    }
+
+    /**
+     * Obtiene el personal asociado, ya sea por asignación o directamente.
+     */
+    public function getPersonalAttribute(): ?Personal
+    {
+        return $this->asignacion?->personal ?? $this->personal()->first();
+    }
+
     public function personalReemplazo(): BelongsTo
     {
         return $this->belongsTo(Personal::class, 'personal_reemplazo_id');
@@ -120,6 +151,16 @@ class OperacionAsistencia extends Model
     public function registradoPor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'registrado_por_user_id');
+    }
+
+    public function motivoAusencia(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Catalogos\MotivoAusencia::class, 'motivo_ausencia_id');
+    }
+
+    public function planilla(): BelongsTo
+    {
+        return $this->belongsTo(Planilla::class, 'planilla_id');
     }
 
     /*
@@ -174,15 +215,44 @@ class OperacionAsistencia extends Model
 
     public function scopeAusentes(Builder $query): Builder
     {
-        return $query->where('es_descanso', false)
-                     ->where('fue_reemplazado', false)
-                     ->whereNull('hora_entrada');
+        return $query->where('es_ausente', true);
+    }
+
+    public function scopeAusentesJustificados(Builder $query): Builder
+    {
+        return $query->where('es_ausente', true)
+                     ->where('tipo_ausencia', 'justificada');
+    }
+
+    public function scopeAusentesInjustificados(Builder $query): Builder
+    {
+        return $query->where('es_ausente', true)
+                     ->where('tipo_ausencia', 'injustificada');
     }
 
     public function scopePresentes(Builder $query): Builder
     {
         return $query->where('es_descanso', false)
+                     ->where('es_ausente', false)
                      ->whereNotNull('hora_entrada');
+    }
+
+    public function scopeSinRegistro(Builder $query): Builder
+    {
+        return $query->where('es_descanso', false)
+                     ->where('es_ausente', false)
+                     ->where('fue_reemplazado', false)
+                     ->whereNull('hora_entrada');
+    }
+
+    public function scopeProcesadosEnPlanilla(Builder $query): Builder
+    {
+        return $query->where('procesado_planilla', true);
+    }
+
+    public function scopePendientesPlanilla(Builder $query): Builder
+    {
+        return $query->where('procesado_planilla', false);
     }
 
     /*
@@ -238,7 +308,46 @@ class OperacionAsistencia extends Model
 
     public function estaAusente(): bool
     {
-        return !$this->es_descanso && !$this->fue_reemplazado && $this->hora_entrada === null;
+        return $this->es_ausente;
+    }
+
+    public function esAusenciaJustificada(): bool
+    {
+        return $this->es_ausente && $this->tipo_ausencia === 'justificada';
+    }
+
+    public function esAusenciaInjustificada(): bool
+    {
+        return $this->es_ausente && $this->tipo_ausencia === 'injustificada';
+    }
+
+    public function marcarAusencia(int $motivoAusenciaId, string $tipoAusencia, ?string $descripcion = null, ?int $userId = null): bool
+    {
+        $this->es_ausente = true;
+        $this->motivo_ausencia_id = $motivoAusenciaId;
+        $this->tipo_ausencia = $tipoAusencia;
+        $this->descripcion_ausencia = $descripcion;
+        $this->registrado_por_user_id = $userId ?? $this->registrado_por_user_id;
+
+        return $this->save();
+    }
+
+    public function quitarAusencia(): bool
+    {
+        $this->es_ausente = false;
+        $this->motivo_ausencia_id = null;
+        $this->tipo_ausencia = null;
+        $this->descripcion_ausencia = null;
+
+        return $this->save();
+    }
+
+    public function marcarProcesadoEnPlanilla(int $planillaId): bool
+    {
+        $this->planilla_id = $planillaId;
+        $this->procesado_planilla = true;
+
+        return $this->save();
     }
 
     public function fueReemplazado(): bool
@@ -264,7 +373,33 @@ class OperacionAsistencia extends Model
                 'personal_id' => $this->personal_reemplazo_id,
                 'motivo' => $this->motivo_reemplazo,
             ] : null,
+            'ausencia' => $this->es_ausente ? [
+                'motivo_id' => $this->motivo_ausencia_id,
+                'tipo' => $this->tipo_ausencia,
+                'descripcion' => $this->descripcion_ausencia,
+            ] : null,
+            'procesado_planilla' => $this->procesado_planilla,
         ];
+    }
+
+    /**
+     * Determina si esta asistencia es directa (sin asignación).
+     */
+    public function esAsistenciaDirecta(): bool
+    {
+        return $this->personal_asignado_id === null && $this->personal_id !== null;
+    }
+
+    /**
+     * Obtiene el personal_id efectivo (ya sea directo o a través de asignación).
+     */
+    public function getPersonalIdEfectivo(): ?int
+    {
+        if ($this->personal_id) {
+            return $this->personal_id;
+        }
+
+        return $this->asignacion?->personal_id;
     }
 
     /*
@@ -273,6 +408,9 @@ class OperacionAsistencia extends Model
     |--------------------------------------------------------------------------
     */
 
+    /**
+     * Crea o actualiza asistencia con asignación.
+     */
     public static function crearOActualizar(
         int $personalAsignadoId,
         Carbon|string $fecha,
@@ -282,6 +420,27 @@ class OperacionAsistencia extends Model
         return self::updateOrCreate(
             [
                 'personal_asignado_id' => $personalAsignadoId,
+                'fecha_asistencia' => $fecha,
+            ],
+            array_merge($datos, [
+                'registrado_por_user_id' => $userId,
+            ])
+        );
+    }
+
+    /**
+     * Crea o actualiza asistencia directa (sin asignación).
+     */
+    public static function crearOActualizarDirecta(
+        int $personalId,
+        Carbon|string $fecha,
+        array $datos,
+        ?int $userId = null
+    ): self {
+        return self::updateOrCreate(
+            [
+                'personal_id' => $personalId,
+                'personal_asignado_id' => null,
                 'fecha_asistencia' => $fecha,
             ],
             array_merge($datos, [

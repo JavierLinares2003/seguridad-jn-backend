@@ -2,7 +2,9 @@
 
 namespace App\Models\Catalogos;
 
+use App\Models\Personal;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Departamento extends Model
 {
@@ -23,5 +25,13 @@ class Departamento extends Model
     public function scopeActivos($query)
     {
         return $query->where('activo', true);
+    }
+
+    /**
+     * Personal que pertenece a este departamento
+     */
+    public function personal(): HasMany
+    {
+        return $this->hasMany(Personal::class, 'departamento_id');
     }
 }
