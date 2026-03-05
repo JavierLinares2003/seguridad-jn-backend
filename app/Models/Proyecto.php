@@ -67,6 +67,11 @@ class Proyecto extends Model
         return $this->hasMany(ProyectoConfiguracionPersonal::class);
     }
 
+    public function primeraConfiguracion()
+    {
+        return $this->hasOne(ProyectoConfiguracionPersonal::class)->oldestOfMany();
+    }
+
     public function documentos()
     {
         return $this->hasMany(ProyectoDocumento::class);

@@ -33,7 +33,8 @@ class ProyectoController extends Controller implements HasMiddleware
             'ubicacion.departamentoGeografico',
             'ubicacion.municipio',
             'facturacion.tipoDocumentoFacturacion',
-            'facturacion.periodicidadPago'
+            'facturacion.periodicidadPago',
+            'primeraConfiguracion.turno',
         ]);
 
         if ($request->has('estado')) {
