@@ -288,21 +288,10 @@ class RolesAndPermissionsSeeder extends Seeder
     {
         $operaciones = Role::firstOrCreate(['name' => 'operaciones', 'guard_name' => 'web']);
         $operaciones->syncPermissions([
-            // Personal (solo ver básico - no puede crear ni editar, ni ver salarios)
-            /* 'view-personal',
-            'view-documentos',
-            'download-documentos', */
-
-            // Projects (solo ver - no puede crear, ni ver configuración de costos)
-           /*  'view-proyectos', */
-
-            // Operations (acceso completo a asistencia y asignaciones)
             'view-operaciones',
             'manage-asistencia',
             'manage-asignaciones',
             'view-alertas-cobertura',
-
-            // Catalogs (view only - needed for forms)
             'view-catalogos',
         ]);
     }

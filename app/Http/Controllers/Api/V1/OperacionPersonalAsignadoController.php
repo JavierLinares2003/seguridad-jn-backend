@@ -494,7 +494,7 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
         // Agregar información de asignaciones a cada proyecto
         $proyectos->getCollection()->transform(function ($proyecto) {
             // Obtener configuraciones de puestos
-            $configuraciones = ProyectoConfiguracionPersonal::with('tipoPersonal')
+            $configuraciones = ProyectoConfiguracionPersonal::with(['tipoPersonal', 'turno'])
                 ->where('proyecto_id', $proyecto->id)
                 ->where('estado', 'activo')
                 ->get();
@@ -541,12 +541,20 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
                 ];
             });
 
+            $primeraConfig = $configuraciones->first();
+
             return [
                 'id' => $proyecto->id,
                 'correlativo' => $proyecto->correlativo,
                 'nombre' => $proyecto->nombre_proyecto,
                 'empresa_cliente' => $proyecto->empresa_cliente,
                 'estado' => $proyecto->estado_proyecto,
+                'primera_configuracion' => $primeraConfig ? [
+                    'turno' => $primeraConfig->turno ? [
+                        'id' => $primeraConfig->turno->id,
+                        'nombre' => $primeraConfig->turno->nombre,
+                    ] : null,
+                ] : null,
                 'puestos' => $puestos,
                 'resumen' => [
                     'total_requerido' => $puestos->sum('cantidad_requerida'),
