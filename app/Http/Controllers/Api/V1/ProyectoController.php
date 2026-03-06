@@ -19,7 +19,7 @@ class ProyectoController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:view-proyectos', only: ['index', 'show']),
+            new Middleware('permission:view-proyectos|view-operaciones', only: ['index', 'show']),
             new Middleware('permission:create-proyectos', only: ['store']),
             new Middleware('permission:edit-proyectos', only: ['update']),
             new Middleware('permission:delete-proyectos', only: ['destroy']),
