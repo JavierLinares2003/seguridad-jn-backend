@@ -48,7 +48,14 @@ class PersonalController extends Controller
             ->byEstado($request->input('estado'));
 
         if ($request->boolean('sin_asignacion')) {
-            $query->whereDoesntHave('asignacionesActivas');
+            $query->whereDoesntHave('asignaciones', function ($q) {
+                $q->where('estado_asignacion', 'activa')
+                  ->where('fecha_inicio', '<=', now())
+                  ->where(function ($inner) {
+                      $inner->whereNull('fecha_fin')
+                            ->orWhere('fecha_fin', '>=', now());
+                  });
+            });
         }
 
         // Ordenamiento
