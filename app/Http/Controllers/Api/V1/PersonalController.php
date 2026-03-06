@@ -47,6 +47,10 @@ class PersonalController extends Controller
             ->byDepartamento($request->input('departamento_id'))
             ->byEstado($request->input('estado'));
 
+        if ($request->boolean('sin_asignacion')) {
+            $query->whereDoesntHave('asignacionesActivas');
+        }
+
         // Ordenamiento
         $sortBy = $request->input('sort_by', 'created_at');
         $sortOrder = $request->input('sort_order', 'desc');
