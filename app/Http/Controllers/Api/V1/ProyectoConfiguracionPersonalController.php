@@ -52,10 +52,7 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
 
     public function update(Request $request, Proyecto $proyecto, ProyectoConfiguracionPersonal $configuracion): JsonResponse
     {
-        if ($configuracion->proyecto_id !== $proyecto->id) {
-            abort(404);
-        }
-
+        // El scoped binding ya garantiza que la configuración pertenece al proyecto
         $validated = $request->validate([
             'nombre_puesto' => 'nullable|string|max:100',
             'cantidad_requerida' => 'sometimes|required|integer|min:1',
@@ -77,10 +74,7 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
 
     public function destroy(Proyecto $proyecto, ProyectoConfiguracionPersonal $configuracion): JsonResponse
     {
-        if ($configuracion->proyecto_id !== $proyecto->id) {
-            abort(404);
-        }
-        
+        // El scoped binding ya garantiza que la configuración pertenece al proyecto
         $configuracion->delete();
         return response()->json(null, 204);
     }
