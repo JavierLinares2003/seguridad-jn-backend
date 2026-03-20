@@ -75,6 +75,17 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
     public function destroy(Proyecto $proyecto, ProyectoConfiguracionPersonal $configuracion): JsonResponse
     {
         // El scoped binding ya garantiza que la configuración pertenece al proyecto
+
+        // Verificar si hay asignaciones de personal usando esta configuración
+        $tieneAsignaciones = \App\Models\OperacionPersonalAsignado::where('configuracion_puesto_id', $configuracion->id)->exists();
+
+        if ($tieneAsignaciones) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se puede eliminar esta configuración porque tiene personal asignado. Por favor, reasigne o elimine primero las asignaciones de personal.'
+            ], 422);
+        }
+
         $configuracion->delete();
         return response()->json(null, 204);
     }
