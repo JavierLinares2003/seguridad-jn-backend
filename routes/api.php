@@ -317,7 +317,9 @@ Route::prefix('v1')->group(function () {
             ->names('api.v1.proyectos');
         Route::apiResource('proyectos.contactos', \App\Http\Controllers\Api\V1\ProyectoContactoController::class)->scoped();
         Route::apiResource('proyectos.inventario', \App\Http\Controllers\Api\V1\ProyectoInventarioController::class)->scoped();
-        Route::apiResource('proyectos.configuracion-personal', \App\Http\Controllers\Api\V1\ProyectoConfiguracionPersonalController::class)->scoped();
+        Route::apiResource('proyectos.configuracion-personal', \App\Http\Controllers\Api\V1\ProyectoConfiguracionPersonalController::class)->scoped([
+            'configuracion_personal' => 'proyecto',
+        ]);
         /*
         |--------------------------------------------------------------------------
         | Operations Routes
