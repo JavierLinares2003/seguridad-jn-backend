@@ -50,9 +50,13 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
         return response()->json($config, 201);
     }
 
-    public function update(Request $request, Proyecto $proyecto, ProyectoConfiguracionPersonal $configuracion): JsonResponse
+    public function update(Request $request, Proyecto $proyecto, ProyectoConfiguracionPersonal $configuracionPersonal): JsonResponse
     {
-        // El scoped binding ya garantiza que la configuración pertenece al proyecto
+        // Validar que la configuración pertenece al proyecto
+        if ($configuracionPersonal->proyecto_id != $proyecto->id) {
+            abort(404, 'Configuración no encontrada en este proyecto');
+        }
+
         $validated = $request->validate([
             'nombre_puesto' => 'nullable|string|max:100',
             'cantidad_requerida' => 'sometimes|required|integer|min:1',
@@ -68,16 +72,19 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
             'estado' => 'string|in:activo,inactivo'
         ]);
 
-        $configuracion->update($validated);
-        return response()->json($configuracion);
+        $configuracionPersonal->update($validated);
+        return response()->json($configuracionPersonal);
     }
 
-    public function destroy(Proyecto $proyecto, ProyectoConfiguracionPersonal $configuracion): JsonResponse
+    public function destroy(Proyecto $proyecto, ProyectoConfiguracionPersonal $configuracionPersonal): JsonResponse
     {
-        // El scoped binding ya garantiza que la configuración pertenece al proyecto
+        // Validar que la configuración pertenece al proyecto
+        if ($configuracionPersonal->proyecto_id != $proyecto->id) {
+            abort(404, 'Configuración no encontrada en este proyecto');
+        }
 
         // Verificar si hay asignaciones de personal usando esta configuración
-        $tieneAsignaciones = \App\Models\OperacionPersonalAsignado::where('configuracion_puesto_id', $configuracion->id)->exists();
+        $tieneAsignaciones = \App\Models\OperacionPersonalAsignado::where('configuracion_puesto_id', $configuracionPersonal->id)->exists();
 
         if ($tieneAsignaciones) {
             return response()->json([
@@ -87,8 +94,8 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
         }
 
         try {
-            $id = $configuracion->id;
-            $deleted = $configuracion->delete();
+            $id = $configuracionPersonal->id;
+            $deleted = $configuracionPersonal->delete();
 
             \Log::info('Intento de eliminación de configuración', [
                 'configuracion_id' => $id,
@@ -103,7 +110,7 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
             ], 200);
         } catch (\Exception $e) {
             \Log::error('Error al eliminar configuración', [
-                'configuracion_id' => $configuracion->id,
+                'configuracion_id' => $configuracionPersonal->id,
                 'error' => $e->getMessage()
             ]);
 
