@@ -86,7 +86,31 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
             ], 422);
         }
 
-        $configuracion->delete();
-        return response()->json(null, 204);
+        try {
+            $id = $configuracion->id;
+            $deleted = $configuracion->delete();
+
+            \Log::info('Intento de eliminación de configuración', [
+                'configuracion_id' => $id,
+                'deleted_result' => $deleted,
+                'exists_after' => ProyectoConfiguracionPersonal::where('id', $id)->exists()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Configuración eliminada correctamente',
+                'deleted' => $deleted
+            ], 200);
+        } catch (\Exception $e) {
+            \Log::error('Error al eliminar configuración', [
+                'configuracion_id' => $configuracion->id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al eliminar la configuración: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }
