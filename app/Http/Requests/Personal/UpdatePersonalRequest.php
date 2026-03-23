@@ -81,11 +81,13 @@ class UpdatePersonalRequest extends FormRequest
             'tipo_pago_id' => ['nullable', 'exists:tipos_pago,id'],
             'puesto' => ['sometimes', 'required', 'string', 'max:100'],
             'departamento_id' => ['nullable', 'exists:departamentos,id'],
+            'fecha_inicio' => ['sometimes', 'nullable', 'date'],
 
             // Información bancaria (requerida si tipo de pago es transferencia o depósito)
             'banco' => ['nullable', 'string', 'max:100'],
             'tipo_cuenta' => ['nullable', 'string', 'in:Ahorro,Corriente,Monetaria'],
             'numero_cuenta' => ['nullable', 'string', 'max:50'],
+            'nombre_cuenta' => ['sometimes', 'nullable', 'string', 'max:100'],
 
             // Otros
             'observaciones' => ['nullable', 'string'],
@@ -172,6 +174,9 @@ class UpdatePersonalRequest extends FormRequest
                     }
                     if (empty($this->numero_cuenta)) {
                         $validator->errors()->add('numero_cuenta', 'El número de cuenta es obligatorio para pagos por transferencia o depósito.');
+                    }
+                    if (empty($this->nombre_cuenta)) {
+                        $validator->errors()->add('nombre_cuenta', 'El nombre de la cuenta es obligatorio para pagos por transferencia o depósito.');
                     }
                 }
             }

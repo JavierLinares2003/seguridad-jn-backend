@@ -61,11 +61,13 @@ class PersonalResource extends JsonResource
             // Datos laborales
             'salario_base' => $this->salario_base,
             'puesto' => $this->puesto,
+            'fecha_inicio' => $this->fecha_inicio?->format('Y-m-d'),
 
             // Información bancaria
             'banco' => $this->banco,
             'tipo_cuenta' => $this->tipo_cuenta,
             'numero_cuenta' => $this->numero_cuenta,
+            'nombre_cuenta' => $this->nombre_cuenta,
 
             // Otros
             'observaciones' => $this->observaciones,

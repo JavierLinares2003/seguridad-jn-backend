@@ -50,9 +50,11 @@ class Personal extends Model
         'banco',
         'tipo_cuenta',
         'numero_cuenta',
+        'nombre_cuenta',
         'puesto',
         'sexo_id',
         'departamento_id',
+        'fecha_inicio',
         'observaciones',
         'foto_perfil',
         'estado',
@@ -62,6 +64,7 @@ class Personal extends Model
     {
         return [
             'fecha_nacimiento' => 'date',
+            'fecha_inicio' => 'date',
             'altura' => 'decimal:2',
             'peso' => 'decimal:2',
             'salario_base' => 'decimal:2',
