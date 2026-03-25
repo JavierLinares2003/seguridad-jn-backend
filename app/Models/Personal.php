@@ -241,6 +241,15 @@ class Personal extends Model
         return $query->where('departamento_id', $departamentoId);
     }
 
+    public function scopeByDepartamentoNombre($query, ?string $nombre)
+    {
+        if (!$nombre) {
+            return $query;
+        }
+
+        return $query->whereHas('departamento', fn ($q) => $q->where('nombre', 'ilike', $nombre));
+    }
+
     public function scopeByEstado($query, ?string $estado)
     {
         if (!$estado) {

@@ -45,6 +45,7 @@ class PersonalController extends Controller
             ])
             ->buscar($request->input('buscar'))
             ->byDepartamento($request->input('departamento_id'))
+            ->byDepartamentoNombre($request->input('departamento_nombre'))
             ->byEstado($request->input('estado'));
 
         if ($request->boolean('sin_asignacion')) {
