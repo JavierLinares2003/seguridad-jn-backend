@@ -500,7 +500,15 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
         }
 
         $proyectos = $query
-            ->orderByRaw('(total_faltantes > 0) DESC')
+            ->orderByRaw("(GREATEST(0, COALESCE((
+                SELECT SUM(pcp.cantidad_requerida)
+                FROM proyectos_configuracion_personal pcp
+                WHERE pcp.proyecto_id = proyectos.id AND pcp.estado = 'activo'
+            ), 0) - COALESCE((
+                SELECT COUNT(*)
+                FROM operaciones_personal_asignado opa
+                WHERE opa.proyecto_id = proyectos.id AND opa.estado_asignacion = 'activa'
+            ), 0)) > 0) DESC")
             ->orderByRaw("SPLIT_PART(correlativo, '-', 3)::integer ASC")
             ->paginate($request->input('per_page', 15));
 
