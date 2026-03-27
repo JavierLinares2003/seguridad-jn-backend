@@ -478,7 +478,7 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
                     WHERE pcp.proyecto_id = proyectos.id AND pcp.estado = 'activo'
                 ), 0) - COALESCE((
                     SELECT COUNT(*)
-                    FROM operacion_personal_asignado opa
+                    FROM operaciones_personal_asignado opa
                     WHERE opa.proyecto_id = proyectos.id AND opa.estado_asignacion = 'activa'
                 ), 0)) AS total_faltantes
             ");
