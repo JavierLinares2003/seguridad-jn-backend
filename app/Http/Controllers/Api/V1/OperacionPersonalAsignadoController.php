@@ -470,7 +470,18 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
                 'estado_proyecto',
                 'fecha_inicio_real',
                 'fecha_fin_real',
-            ]);
+            ])
+            ->selectRaw("
+                GREATEST(0, COALESCE((
+                    SELECT SUM(pcp.cantidad_requerida)
+                    FROM proyectos_configuracion_personal pcp
+                    WHERE pcp.proyecto_id = proyectos.id AND pcp.estado = 'activo'
+                ), 0) - COALESCE((
+                    SELECT COUNT(*)
+                    FROM operacion_personal_asignado opa
+                    WHERE opa.proyecto_id = proyectos.id AND opa.estado_asignacion = 'activa'
+                ), 0)) AS total_faltantes
+            ");
 
         // Filtrar por estado: si se especifica uno, usar ese; sino, default a planificacion/activo
         if ($request->filled('estado')) {
@@ -488,7 +499,9 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
             });
         }
 
-        $proyectos = $query->orderBy('nombre_proyecto')
+        $proyectos = $query
+            ->orderByRaw('(total_faltantes > 0) DESC')
+            ->orderByRaw("SPLIT_PART(correlativo, '-', 3)::integer ASC")
             ->paginate($request->input('per_page', 15));
 
         // Agregar información de asignaciones a cada proyecto
