@@ -26,6 +26,11 @@ class Transaccion extends Model
         'estado_transaccion',
         'prestamo_id',
         'registrado_por_user_id',
+        'comprobante_ruta',
+        'comprobante_nombre_original',
+        'comprobante_extension',
+        'comprobante_tamanio_kb',
+        'comprobante_subido_por_user_id',
     ];
 
     protected $casts = [

@@ -42,8 +42,12 @@ class StorePersonalRequest extends FormRequest
             // Datos laborales
             'tipo_contratacion_id' => ['nullable', 'exists:tipos_contratacion,id'],
             'salario_base' => ['required', 'numeric', 'min:0'],
+            'tiene_igss' => ['boolean'],
+            'tiene_prestaciones' => ['boolean'],
+            'tiene_bono14' => ['boolean'],
             'tipo_pago_id' => ['nullable', 'exists:tipos_pago,id'],
             'puesto' => ['required', 'string', 'max:100'],
+            'nivel_estudio_id' => ['nullable', 'exists:niveles_estudio,id'],
             'departamento_id' => ['nullable', 'exists:departamentos,id'],
             'fecha_inicio' => ['nullable', 'date'],
 

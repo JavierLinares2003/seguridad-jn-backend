@@ -8,6 +8,7 @@ use App\Models\Prestamo;
 use App\Models\Transaccion;
 use App\Services\PrestamoService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class TransaccionController extends Controller
 {
@@ -64,6 +65,7 @@ class TransaccionController extends Controller
     public function store(StoreTransaccionRequest $request, PrestamoService $prestamoService)
     {
         $data = $request->validated();
+        unset($data['comprobante']);
 
         // Set registrado_por_user_id to current user
         $data['registrado_por_user_id'] = auth()->id();
@@ -81,6 +83,7 @@ class TransaccionController extends Controller
                 );
 
                 $transaccion = $resultado['transaccion'];
+                $this->guardarComprobante($request, $transaccion, 'transacciones');
                 $transaccion->load(['personal', 'prestamo', 'asistencia', 'registradoPor']);
 
                 $mensaje = 'Abono realizado exitosamente.';
@@ -112,6 +115,7 @@ class TransaccionController extends Controller
 
         // Para otros tipos de transacciones, crear normalmente
         $transaccion = Transaccion::create($data);
+        $this->guardarComprobante($request, $transaccion, 'transacciones');
 
         // Load relationships
         $transaccion->load(['personal', 'prestamo', 'asistencia', 'registradoPor']);
@@ -161,6 +165,94 @@ class TransaccionController extends Controller
             'success' => true,
             'message' => 'Transacción cancelada exitosamente.',
             'data' => $transaccion,
+        ]);
+    }
+
+    /**
+     * Return the comprobante file of a transaction (inline preview).
+     */
+    public function comprobante($id)
+    {
+        $transaccion = Transaccion::findOrFail($id);
+
+        if (!$transaccion->comprobante_ruta) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Esta transacción no tiene comprobante adjunto.',
+            ], 404);
+        }
+
+        if (!Storage::disk('operaciones_comprobantes')->exists($transaccion->comprobante_ruta)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El archivo de imagen no fue encontrado.',
+            ], 404);
+        }
+
+        $contenido = Storage::disk('operaciones_comprobantes')->get($transaccion->comprobante_ruta);
+        $mimeType = Storage::disk('operaciones_comprobantes')->mimeType($transaccion->comprobante_ruta);
+
+        return response($contenido, 200)
+            ->header('Content-Type', $mimeType)
+            ->header('Content-Disposition', 'inline; filename="' . $transaccion->comprobante_nombre_original . '"');
+    }
+
+    /**
+     * Delete the comprobante file of a transaction.
+     */
+    public function deleteComprobante($id)
+    {
+        $transaccion = Transaccion::findOrFail($id);
+
+        if (!$transaccion->comprobante_ruta) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Esta transacción no tiene comprobante adjunto.',
+            ], 404);
+        }
+
+        if (Storage::disk('operaciones_comprobantes')->exists($transaccion->comprobante_ruta)) {
+            Storage::disk('operaciones_comprobantes')->delete($transaccion->comprobante_ruta);
+        }
+
+        $transaccion->update([
+            'comprobante_ruta' => null,
+            'comprobante_nombre_original' => null,
+            'comprobante_extension' => null,
+            'comprobante_tamanio_kb' => null,
+            'comprobante_subido_por_user_id' => null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Comprobante eliminado exitosamente.',
+        ]);
+    }
+
+    /**
+     * Store an uploaded comprobante file on the given model.
+     */
+    private function guardarComprobante(Request $request, $model, string $tipo): void
+    {
+        if (!$request->hasFile('comprobante')) {
+            return;
+        }
+
+        $archivo = $request->file('comprobante');
+        $extension = strtolower($archivo->getClientOriginalExtension());
+        $nombreOriginal = $archivo->getClientOriginalName();
+        $tamanioKb = (int) ceil($archivo->getSize() / 1024);
+
+        $nombreArchivo = sprintf('%s_%s_%s.%s', $tipo, $model->id, now()->format('YmdHis'), $extension);
+
+        $ruta = $archivo->storeAs($tipo . '/' . $model->id, $nombreArchivo, 'operaciones_comprobantes');
+
+        $model->update([
+            'comprobante_ruta' => $ruta,
+            'comprobante_nombre_original' => $nombreOriginal,
+            'comprobante_extension' => $extension,
+            'comprobante_tamanio_kb' => $tamanioKb,
+            'comprobante_subido_por_user_id' => auth()->id(),
         ]);
     }
 

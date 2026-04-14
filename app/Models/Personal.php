@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Catalogos\Departamento;
 use App\Models\Catalogos\EstadoCivil;
+use App\Models\Catalogos\NivelEstudio;
 use App\Models\Catalogos\Sexo;
 use App\Models\Catalogos\TipoContratacion;
 use App\Models\Catalogos\TipoPago;
@@ -46,6 +47,9 @@ class Personal extends Model
         'alergias',
         'tipo_contratacion_id',
         'salario_base',
+        'tiene_igss',
+        'tiene_prestaciones',
+        'tiene_bono14',
         'tipo_pago_id',
         'banco',
         'tipo_cuenta',
@@ -53,6 +57,7 @@ class Personal extends Model
         'nombre_cuenta',
         'puesto',
         'sexo_id',
+        'nivel_estudio_id',
         'departamento_id',
         'fecha_inicio',
         'observaciones',
@@ -72,6 +77,9 @@ class Personal extends Model
             'sabe_escribir' => 'boolean',
             'sabe_usar_computadora' => 'boolean',
             'es_alergico' => 'boolean',
+            'tiene_igss' => 'boolean',
+            'tiene_prestaciones' => 'boolean',
+            'tiene_bono14' => 'boolean',
         ];
     }
 
@@ -153,6 +161,11 @@ class Personal extends Model
         return $this->belongsTo(Departamento::class, 'departamento_id');
     }
 
+    public function nivelEstudio(): BelongsTo
+    {
+        return $this->belongsTo(NivelEstudio::class, 'nivel_estudio_id');
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Relationships - Related Tables
@@ -193,6 +206,11 @@ class Personal extends Model
     {
         return $this->hasMany(OperacionPersonalAsignado::class, 'personal_id')
             ->where('estado_asignacion', 'activa');
+    }
+
+    public function historialSalarios(): HasMany
+    {
+        return $this->hasMany(PersonalHistorialSalario::class, 'personal_id');
     }
 
     /*

@@ -117,7 +117,10 @@ class ProyectoController extends Controller implements HasMiddleware
             }
 
             if ($request->has('facturacion')) {
-                $proyecto->facturacion()->create($request->input('facturacion'));
+                $facturacionData = $request->input('facturacion');
+                $facturacionData['monto_proyecto_total'] = 0;
+                $facturacion = $proyecto->facturacion()->create($facturacionData);
+                $facturacion->recalcularImpuesto();
             }
 
             return $proyecto;
@@ -169,10 +172,14 @@ class ProyectoController extends Controller implements HasMiddleware
             }
 
             if ($request->has('facturacion')) {
+                $facturacionData = $request->input('facturacion');
+                unset($facturacionData['monto_proyecto_total']);
                 $proyecto->facturacion()->updateOrCreate(
                     ['proyecto_id' => $proyecto->id],
-                    $request->input('facturacion')
+                    $facturacionData
                 );
+                $proyecto->load('facturacion');
+                $proyecto->facturacion->recalcularImpuesto();
             }
         });
         

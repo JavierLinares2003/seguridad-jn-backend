@@ -27,10 +27,13 @@ class PlanillaDetalle extends Model
         'descuento_prestamos',
         'descuento_antecedentes',
         'otros_descuentos',
+        'descuento_ausencias',
         'total_descuentos',
         'salario_neto',
         'observaciones',
         'tipo_calculo',
+        'dias_descanso',
+        'dias_ausentes',
     ];
     
     protected $casts = [
@@ -47,8 +50,11 @@ class PlanillaDetalle extends Model
         'descuento_prestamos' => 'decimal:2',
         'descuento_antecedentes' => 'decimal:2',
         'otros_descuentos' => 'decimal:2',
+        'descuento_ausencias' => 'decimal:2',
         'total_descuentos' => 'decimal:2',
         'salario_neto' => 'decimal:2',
+        'dias_descanso' => 'integer',
+        'dias_ausentes' => 'integer',
     ];
     
     /**

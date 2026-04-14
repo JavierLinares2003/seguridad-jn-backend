@@ -47,6 +47,7 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
         ]);
 
         $config = $proyecto->configuracionPersonal()->create($validated);
+        $this->recalcularMontoTotal($proyecto);
         return response()->json($config, 201);
     }
 
@@ -73,6 +74,7 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
         ]);
 
         $configuracionPersonal->update($validated);
+        $this->recalcularMontoTotal($proyecto);
         return response()->json($configuracionPersonal);
     }
 
@@ -103,6 +105,7 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
                 'exists_after' => ProyectoConfiguracionPersonal::where('id', $id)->exists()
             ]);
 
+            $this->recalcularMontoTotal($proyecto);
             return response()->json([
                 'success' => true,
                 'message' => 'Configuración eliminada correctamente',
@@ -118,6 +121,18 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
                 'success' => false,
                 'message' => 'Error al eliminar la configuración: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+    private function recalcularMontoTotal(Proyecto $proyecto): void
+    {
+        $total = $proyecto->configuracionPersonal()
+            ->selectRaw('SUM(cantidad_requerida * costo_hora_proyecto) as total')
+            ->value('total') ?? 0;
+
+        if ($proyecto->facturacion) {
+            $proyecto->facturacion->update(['monto_proyecto_total' => $total]);
+            $proyecto->facturacion->recalcularImpuesto();
         }
     }
 }

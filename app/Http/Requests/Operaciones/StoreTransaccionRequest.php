@@ -30,6 +30,7 @@ class StoreTransaccionRequest extends FormRequest
             'estado_transaccion' => ['nullable', Rule::in(['pendiente', 'aplicado', 'cancelado'])],
             // Para abonos a préstamo, el prestamo_id se asigna automáticamente al préstamo activo del personal
             'prestamo_id' => ['nullable', 'exists:operaciones_prestamos,id'],
+            'comprobante' => ['nullable', 'file', 'mimes:jpeg,jpg,png,gif,webp,pdf,doc,docx,xls,xlsx', 'max:10240'],
         ];
     }
 

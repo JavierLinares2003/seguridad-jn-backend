@@ -7,6 +7,7 @@ use App\Http\Requests\Operaciones\StorePrestamoRequest;
 use App\Models\Prestamo;
 use App\Services\PrestamoService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class PrestamoController extends Controller
 {
@@ -53,6 +54,7 @@ class PrestamoController extends Controller
     public function store(StorePrestamoRequest $request, PrestamoService $prestamoService)
     {
         $data = $request->validated();
+        unset($data['comprobante']);
 
         // Set saldo_pendiente equal to monto_total initially
         $data['saldo_pendiente'] = $data['monto_total'];
@@ -61,6 +63,7 @@ class PrestamoController extends Controller
         $data['aprobado_por_user_id'] = auth()->id();
 
         $prestamo = Prestamo::create($data);
+        $this->guardarComprobante($request, $prestamo, 'prestamos');
 
         // Generar cuotas automáticas si tiene cuotas definidas
         $cuotasGeneradas = 0;
@@ -154,6 +157,94 @@ class PrestamoController extends Controller
         return response()->json([
             'success' => true,
             'data' => $resumen,
+        ]);
+    }
+
+    /**
+     * Return the comprobante file of a loan (inline preview).
+     */
+    public function comprobante($id)
+    {
+        $prestamo = Prestamo::findOrFail($id);
+
+        if (!$prestamo->comprobante_ruta) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Este préstamo no tiene comprobante adjunto.',
+            ], 404);
+        }
+
+        if (!Storage::disk('operaciones_comprobantes')->exists($prestamo->comprobante_ruta)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El archivo de comprobante no fue encontrado.',
+            ], 404);
+        }
+
+        $contenido = Storage::disk('operaciones_comprobantes')->get($prestamo->comprobante_ruta);
+        $mimeType = Storage::disk('operaciones_comprobantes')->mimeType($prestamo->comprobante_ruta);
+
+        return response($contenido, 200)
+            ->header('Content-Type', $mimeType)
+            ->header('Content-Disposition', 'inline; filename="' . $prestamo->comprobante_nombre_original . '"');
+    }
+
+    /**
+     * Delete the comprobante file of a loan.
+     */
+    public function deleteComprobante($id)
+    {
+        $prestamo = Prestamo::findOrFail($id);
+
+        if (!$prestamo->comprobante_ruta) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Este préstamo no tiene comprobante adjunto.',
+            ], 404);
+        }
+
+        if (Storage::disk('operaciones_comprobantes')->exists($prestamo->comprobante_ruta)) {
+            Storage::disk('operaciones_comprobantes')->delete($prestamo->comprobante_ruta);
+        }
+
+        $prestamo->update([
+            'comprobante_ruta' => null,
+            'comprobante_nombre_original' => null,
+            'comprobante_extension' => null,
+            'comprobante_tamanio_kb' => null,
+            'comprobante_subido_por_user_id' => null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Comprobante eliminado exitosamente.',
+        ]);
+    }
+
+    /**
+     * Store an uploaded comprobante file on the given model.
+     */
+    private function guardarComprobante(Request $request, $model, string $tipo): void
+    {
+        if (!$request->hasFile('comprobante')) {
+            return;
+        }
+
+        $archivo = $request->file('comprobante');
+        $extension = strtolower($archivo->getClientOriginalExtension());
+        $nombreOriginal = $archivo->getClientOriginalName();
+        $tamanioKb = (int) ceil($archivo->getSize() / 1024);
+
+        $nombreArchivo = sprintf('%s_%s_%s.%s', $tipo, $model->id, now()->format('YmdHis'), $extension);
+
+        $ruta = $archivo->storeAs($tipo . '/' . $model->id, $nombreArchivo, 'operaciones_comprobantes');
+
+        $model->update([
+            'comprobante_ruta' => $ruta,
+            'comprobante_nombre_original' => $nombreOriginal,
+            'comprobante_extension' => $extension,
+            'comprobante_tamanio_kb' => $tamanioKb,
+            'comprobante_subido_por_user_id' => auth()->id(),
         ]);
     }
 }

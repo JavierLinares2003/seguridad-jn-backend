@@ -24,6 +24,7 @@ class StorePrestamoRequest extends FormRequest
             'cuotas_totales' => ['nullable', 'integer', 'min:1'],
             'monto_cuota' => ['nullable', 'numeric', 'min:0'],
             'observaciones' => ['nullable', 'string', 'max:1000'],
+            'comprobante' => ['nullable', 'file', 'mimes:jpeg,jpg,png,gif,webp,pdf,doc,docx,xls,xlsx', 'max:10240'],
         ];
     }
 

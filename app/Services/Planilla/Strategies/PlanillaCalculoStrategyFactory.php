@@ -14,8 +14,7 @@ class PlanillaCalculoStrategyFactory
      */
     private static array $strategies = [
         'caso_1' => Caso1Strategy::class,
-        // Aquí se registran casos futuros:
-        // 'caso_2' => Caso2Strategy::class,
+        'caso_2' => Caso2Strategy::class,
     ];
 
     /**

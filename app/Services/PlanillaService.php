@@ -159,15 +159,28 @@ class PlanillaService
         $proyectoId = $asignacionActiva?->proyecto_id;
         $horasPorTurno = TurnoHelper::horasTrabajadas($turno);
 
-        // Calcular días y horas trabajadas
-        $diasTrabajados = $this->contarDiasTrabajados($empleado->id, $periodoInicio, $periodoFin);
-        $horasTrabajadas = $diasTrabajados * $horasPorTurno;
+        $esCaso2 = $strategy->getNombre() === 'caso_2';
 
-        // Calcular descuentos
+        if ($esCaso2) {
+            // Caso 2: pago por día — no se requiere hora_entrada/salida
+            $diasTrabajados   = $this->contarDiasTrabajadosPorDia($empleado->id, $periodoInicio, $periodoFin);
+            $diasDescanso     = $this->contarDiasDescanso($empleado->id, $periodoInicio, $periodoFin);
+            $diasAusentes     = $this->contarDiasAusentes($empleado->id, $periodoInicio, $periodoFin);
+            $horasTrabajadas  = 0;
+        } else {
+            // Caso 1: pago por hora — requiere hora_entrada
+            $diasTrabajados   = $this->contarDiasTrabajados($empleado->id, $periodoInicio, $periodoFin);
+            $diasDescanso     = 0;
+            $diasAusentes     = 0;
+            $horasTrabajadas  = $diasTrabajados * $horasPorTurno;
+        }
+
+        // Calcular descuentos de transacciones (multas, préstamos, etc.)
         $descuentos = $this->calcularDescuentos($empleado->id, $periodoInicio, $periodoFin);
 
-        // Solo crear detalle si trabajó días o tiene descuentos
-        if ($diasTrabajados <= 0 && $descuentos['total'] <= 0) {
+        // Solo crear detalle si hubo actividad o descuentos
+        $totalDias = $diasTrabajados + ($esCaso2 ? $diasDescanso + $diasAusentes : 0);
+        if ($totalDias <= 0 && $descuentos['total'] <= 0) {
             return null;
         }
 
@@ -175,6 +188,7 @@ class PlanillaService
         $datosEmpleado = [
             'salario_base' => $empleado->salario_base ?? 0,
             'turno' => $turno,
+            'dias_descanso' => $diasDescanso,   // usado por Caso2Strategy
             'asignacion_activa' => $asignacionActiva ? [
                 // NOTA: pago_hora_personal es en realidad un valor MENSUAL (nombre histórico incorrecto)
                 'pago_mensual' => $asignacionActiva->configuracionPuesto?->pago_hora_personal ?? 0,
@@ -190,13 +204,22 @@ class PlanillaService
             $horasTrabajadas
         );
 
-        // Calcular pago por hora (para referencia)
-        $pagoPorHora = ($diasHabiles > 0 && $horasPorTurno > 0)
+        // Penalidad por ausencias (solo Caso 2): 50% de la tarifa diaria por cada día ausente.
+        // La tarifa siempre se calcula sobre 30 días (mes estándar).
+        $descuentoAusencias = 0.0;
+        if ($esCaso2 && $diasAusentes > 0) {
+            $tarifaDiaria = (float) ($empleado->salario_base ?? 0) / 30;
+            $descuentoAusencias = round($tarifaDiaria * 0.5 * $diasAusentes, 2);
+        }
+
+        // Calcular pago por hora (referencia, solo Caso 1)
+        $pagoPorHora = (!$esCaso2 && $diasHabiles > 0 && $horasPorTurno > 0)
             ? $this->obtenerSalarioMensual($datosEmpleado) / ($diasHabiles * $horasPorTurno)
             : 0;
 
-        // Calcular salario neto
-        $salarioNeto = max($salarioDevengado - $descuentos['total'], 0);
+        // Calcular totales
+        $totalDescuentos = $descuentos['total'] + $descuentoAusencias;
+        $salarioNeto = max($salarioDevengado - $totalDescuentos, 0);
 
         // Crear detalle
         return PlanillaDetalle::create([
@@ -204,6 +227,8 @@ class PlanillaService
             'personal_id' => $empleado->id,
             'proyecto_id' => $proyectoId,
             'dias_trabajados' => $diasTrabajados,
+            'dias_descanso' => $diasDescanso,
+            'dias_ausentes' => $diasAusentes,
             'horas_trabajadas' => $horasTrabajadas,
             'horas_por_turno' => $horasPorTurno,
             'pago_por_hora' => round($pagoPorHora, 2),
@@ -214,7 +239,8 @@ class PlanillaService
             'descuento_prestamos' => $descuentos['abono_prestamo'],
             'descuento_antecedentes' => $descuentos['antecedentes'],
             'otros_descuentos' => $descuentos['otro_descuento'],
-            'total_descuentos' => $descuentos['total'],
+            'descuento_ausencias' => $descuentoAusencias,
+            'total_descuentos' => $totalDescuentos,
             'salario_neto' => $salarioNeto,
             'tipo_calculo' => $strategy->getNombre(),
         ]);
@@ -279,6 +305,72 @@ class PlanillaService
                   ->orWhere('oa.es_ausente', false);
             })
             ->whereNotNull('oa.hora_entrada')
+            ->distinct()
+            ->count('oa.fecha_asistencia');
+    }
+
+    /**
+     * Cuenta días trabajados para Caso 2 (pago por día).
+     * No requiere hora_entrada. Solo verifica que no sea descanso ni ausencia.
+     */
+    private function contarDiasTrabajadosPorDia(int $personalId, string $inicio, string $fin): int
+    {
+        return DB::table('operaciones_asistencia as oa')
+            ->leftJoin('operaciones_personal_asignado as opa', 'oa.personal_asignado_id', '=', 'opa.id')
+            ->where(function ($query) use ($personalId) {
+                $query->where('opa.personal_id', $personalId)
+                      ->orWhere(function ($q) use ($personalId) {
+                          $q->where('oa.personal_id', $personalId)
+                            ->whereNull('oa.personal_asignado_id');
+                      });
+            })
+            ->whereBetween('oa.fecha_asistencia', [$inicio, $fin])
+            ->where('oa.es_descanso', false)
+            ->where(function ($q) {
+                $q->whereNull('oa.es_ausente')
+                  ->orWhere('oa.es_ausente', false);
+            })
+            ->distinct()
+            ->count('oa.fecha_asistencia');
+    }
+
+    /**
+     * Cuenta días de descanso registrados en el período (Caso 2: se pagan).
+     */
+    private function contarDiasDescanso(int $personalId, string $inicio, string $fin): int
+    {
+        return DB::table('operaciones_asistencia as oa')
+            ->leftJoin('operaciones_personal_asignado as opa', 'oa.personal_asignado_id', '=', 'opa.id')
+            ->where(function ($query) use ($personalId) {
+                $query->where('opa.personal_id', $personalId)
+                      ->orWhere(function ($q) use ($personalId) {
+                          $q->where('oa.personal_id', $personalId)
+                            ->whereNull('oa.personal_asignado_id');
+                      });
+            })
+            ->whereBetween('oa.fecha_asistencia', [$inicio, $fin])
+            ->where('oa.es_descanso', true)
+            ->distinct()
+            ->count('oa.fecha_asistencia');
+    }
+
+    /**
+     * Cuenta días de ausencia en el período (Caso 2: generan penalidad del 50%).
+     */
+    private function contarDiasAusentes(int $personalId, string $inicio, string $fin): int
+    {
+        return DB::table('operaciones_asistencia as oa')
+            ->leftJoin('operaciones_personal_asignado as opa', 'oa.personal_asignado_id', '=', 'opa.id')
+            ->where(function ($query) use ($personalId) {
+                $query->where('opa.personal_id', $personalId)
+                      ->orWhere(function ($q) use ($personalId) {
+                          $q->where('oa.personal_id', $personalId)
+                            ->whereNull('oa.personal_asignado_id');
+                      });
+            })
+            ->whereBetween('oa.fecha_asistencia', [$inicio, $fin])
+            ->where('oa.es_descanso', false)
+            ->where('oa.es_ausente', true)
             ->distinct()
             ->count('oa.fecha_asistencia');
     }

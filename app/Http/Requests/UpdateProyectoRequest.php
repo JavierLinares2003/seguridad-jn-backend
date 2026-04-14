@@ -40,8 +40,9 @@ class UpdateProyectoRequest extends FormRequest
             'facturacion.forma_pago' => ['sometimes', 'string'],
             'facturacion.periodicidad_pago_id' => ['sometimes', 'exists:periodicidades_pago,id'],
             'facturacion.dia_pago' => ['nullable', 'integer', 'between:1,31'],
-            'facturacion.monto_proyecto_total' => ['nullable', 'numeric'],
             'facturacion.moneda' => ['nullable', 'string', 'max:3'],
+            'facturacion.aplica_impuesto' => ['nullable', 'boolean'],
+            'facturacion.porcentaje_impuesto' => ['nullable', 'numeric', 'min:0', 'max:100', 'required_if:facturacion.aplica_impuesto,true'],
         ];
     }
 }

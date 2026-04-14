@@ -48,6 +48,10 @@ class PersonalResource extends JsonResource
                 'id' => $this->departamento->id,
                 'nombre' => $this->departamento->nombre,
             ]),
+            'nivel_estudio' => $this->whenLoaded('nivelEstudio', fn () => [
+                'id' => $this->nivelEstudio->id,
+                'nombre' => $this->nivelEstudio->nombre,
+            ]),
 
             // Datos físicos
             'altura' => $this->altura,
@@ -60,6 +64,9 @@ class PersonalResource extends JsonResource
 
             // Datos laborales
             'salario_base' => $this->salario_base,
+            'tiene_igss' => $this->tiene_igss,
+            'tiene_prestaciones' => $this->tiene_prestaciones,
+            'tiene_bono14' => $this->tiene_bono14,
             'puesto' => $this->puesto,
             'fecha_inicio' => $this->fecha_inicio?->format('Y-m-d'),
 

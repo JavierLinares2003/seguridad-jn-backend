@@ -52,6 +52,13 @@ return [
             'report' => false,
         ],
 
+        'operaciones_comprobantes' => [
+            'driver' => 'local',
+            'root' => storage_path('app/operaciones_comprobantes'),
+            'throw' => false,
+            'report' => false,
+        ],
+
         'personal_fotos' => [
             'driver' => 'local',
             'root' => storage_path('app/public/personal_fotos'),

@@ -306,6 +306,10 @@ Route::prefix('v1')->group(function () {
             // Historial de Proyectos
             Route::get('/{personal}/proyectos', [PersonalController::class, 'getHistorialProyectos'])
                 ->name('api.v1.personal.proyectos');
+
+            // Historial de Salarios
+            Route::get('/{personal}/historial-salarios', [PersonalController::class, 'getHistorialSalarios'])
+                ->name('api.v1.personal.historial-salarios');
         });
 
         /*
@@ -453,6 +457,10 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.operaciones.prestamos.historial');
             Route::get('/prestamos/{id}/resumen', [PrestamoController::class, 'resumen'])
                 ->name('api.v1.operaciones.prestamos.resumen');
+            Route::get('/prestamos/{id}/comprobante', [PrestamoController::class, 'comprobante'])
+                ->name('api.v1.operaciones.prestamos.comprobante');
+            Route::delete('/prestamos/{id}/comprobante', [PrestamoController::class, 'deleteComprobante'])
+                ->name('api.v1.operaciones.prestamos.comprobante.delete');
 
             // Transacciones
             Route::get('/transacciones', [TransaccionController::class, 'index'])
@@ -465,6 +473,10 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.operaciones.transacciones.cancelar');
             Route::post('/transacciones/{id}/aplicar', [TransaccionController::class, 'aplicar'])
                 ->name('api.v1.operaciones.transacciones.aplicar');
+            Route::get('/transacciones/{id}/comprobante', [TransaccionController::class, 'comprobante'])
+                ->name('api.v1.operaciones.transacciones.comprobante');
+            Route::delete('/transacciones/{id}/comprobante', [TransaccionController::class, 'deleteComprobante'])
+                ->name('api.v1.operaciones.transacciones.comprobante.delete');
 
             // Alertas de cobertura
             Route::get('/alertas-cobertura', [AlertaCoberturaController::class, 'index'])
@@ -543,3 +555,12 @@ Route::get('/health', function () {
         'timestamp' => now()->toISOString(),
     ]);
 })->name('api.health');
+
+        // Ping endpoint for simple connectivity check
+        Route::get('/ping', function () {
+            return response()->json([
+                'success' => true,
+                'status' => 'ok',
+                'timestamp' => now()->toISOString(),
+            ]);
+        })->name('api.ping');

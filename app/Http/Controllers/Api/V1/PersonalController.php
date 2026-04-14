@@ -12,6 +12,7 @@ use App\Http\Requests\Personal\UpdatePersonalRequest;
 use App\Http\Resources\PersonalCollection;
 use App\Http\Resources\PersonalDireccionResource;
 use App\Http\Resources\PersonalFamiliarResource;
+use App\Http\Resources\PersonalHistorialSalarioResource;
 use App\Http\Resources\PersonalReferenciaLaboralResource;
 use App\Http\Resources\PersonalRedSocialResource;
 use App\Http\Resources\PersonalResource;
@@ -42,6 +43,7 @@ class PersonalController extends Controller
                 'tipoContratacion:id,nombre',
                 'tipoPago:id,nombre',
                 'departamento:id,nombre',
+                'nivelEstudio:id,nombre',
             ])
             ->buscar($request->input('buscar'))
             ->byDepartamento($request->input('departamento_id'))
@@ -124,6 +126,7 @@ class PersonalController extends Controller
                 'tipoContratacion',
                 'tipoPago',
                 'departamento',
+                'nivelEstudio',
                 'direccion.departamentoGeografico',
                 'direccion.municipio',
                 'referenciasLaborales',
@@ -162,6 +165,7 @@ class PersonalController extends Controller
             'tipoContratacion',
             'tipoPago',
             'departamento',
+            'nivelEstudio',
             'direccion.departamentoGeografico',
             'direccion.municipio',
             'referenciasLaborales',
@@ -340,6 +344,7 @@ class PersonalController extends Controller
                 'tipoContratacion',
                 'tipoPago',
                 'departamento',
+                'nivelEstudio',
                 'direccion.departamentoGeografico',
                 'direccion.municipio',
                 'referenciasLaborales',
@@ -1385,6 +1390,43 @@ class PersonalController extends Controller
             'success' => true,
             'data' => $asignaciones,
             'total' => $asignaciones->count(),
+        ]);
+    }
+
+    /**
+     * Get salary history for a personal record.
+     *
+     * GET /api/v1/personal/{id}/historial-salarios
+     */
+    public function getHistorialSalarios(Request $request, int $id): JsonResponse
+    {
+        $personal = Personal::find($id);
+
+        if (! $personal) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Personal no encontrado.',
+                'error' => 'not_found',
+            ], 404);
+        }
+
+        $perPage = min($request->input('per_page', 15), 100);
+
+        $historial = $personal->historialSalarios()
+            ->with('cambiadoPor:id,name')
+            ->orderBy('fecha_cambio', 'desc')
+            ->orderBy('id', 'desc')
+            ->paginate($perPage);
+
+        return response()->json([
+            'success' => true,
+            'data' => PersonalHistorialSalarioResource::collection($historial->items()),
+            'meta' => [
+                'current_page' => $historial->currentPage(),
+                'last_page'    => $historial->lastPage(),
+                'per_page'     => $historial->perPage(),
+                'total'        => $historial->total(),
+            ],
         ]);
     }
 }
