@@ -7,6 +7,7 @@ use App\Http\Requests\Operacion\RegistrarAsistenciaRequest;
 use App\Http\Requests\Operacion\UpdateAsistenciaRequest;
 use App\Models\Catalogos\MotivoAusencia;
 use App\Models\OperacionAsistencia;
+use App\Models\PersonalPermiso;
 use App\Models\Proyecto;
 use App\Services\Operacion\AsistenciaService;
 use App\Services\TurnoCalculadorService;
@@ -15,6 +16,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Validation\Rule;
 
 class OperacionAsistenciaController extends Controller implements HasMiddleware
 {
@@ -31,7 +33,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 'reemplazosDisponibles', 'vistaAgrupada', 'motivosAusencia', 'calendarioTurno'
             ]),
             new Middleware('permission:manage-asistencia', only: [
-                'store', 'update', 'destroy', 'generarDescansos', 'marcarEntrada', 'marcarSalida', 'marcarAusencia'
+                'store', 'update', 'destroy', 'generarDescansos', 'marcarAusencia', 'permisosDisponibles'
             ]),
         ];
     }
@@ -366,7 +368,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             ->get();
 
             // Obtener asistencias para estas asignaciones
-            $asistencias = OperacionAsistencia::with(['personalReemplazo', 'motivoAusencia'])
+            $asistencias = OperacionAsistencia::with(['personalReemplazo', 'motivoAusencia', 'permisoReposicion'])
                 ->whereIn('personal_asignado_id', $asignaciones->pluck('id'))
                 ->where('fecha_asistencia', $fecha)
                 ->get()
@@ -384,11 +386,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                     'tipo_personal' => $asignacion->configuracionPuesto?->tipoPersonal?->nombre,
                     'asistencia' => $asistencia ? [
                         'id' => $asistencia->id,
-                        'hora_entrada' => $asistencia->hora_entrada?->format('H:i'),
-                        'hora_salida' => $asistencia->hora_salida?->format('H:i'),
                         'estado' => $asistencia->estado_dia,
-                        'llego_tarde' => $asistencia->llego_tarde,
-                        'minutos_retraso' => $asistencia->minutos_retraso,
                         'es_descanso' => $asistencia->es_descanso,
                         'es_ausente' => $asistencia->es_ausente,
                         'motivo_ausencia' => $asistencia->motivoAusencia,
@@ -396,6 +394,15 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                         'tipo_ausencia' => $asistencia->tipo_ausencia,
                         'fue_reemplazado' => $asistencia->fue_reemplazado,
                         'reemplazo' => $asistencia->personalReemplazo,
+                        'hizo_reposicion' => $asistencia->permiso_reposicion_id !== null,
+                        'horas_reposicion' => $asistencia->horas_reposicion,
+                        'permiso_reposicion' => $asistencia->permisoReposicion ? [
+                            'id'                => $asistencia->permisoReposicion->id,
+                            'tipo'              => $asistencia->permisoReposicion->tipo,
+                            'descripcion'       => $asistencia->permisoReposicion->descripcion,
+                            'cantidad_aprobada' => $asistencia->permisoReposicion->cantidad_aprobada,
+                            'saldo_pendiente'   => $asistencia->permisoReposicion->saldo_pendiente,
+                        ] : null,
                         'observaciones' => $asistencia->observaciones,
                     ] : ['id' => null, 'estado' => 'sin_registro'],
                 ];
@@ -472,7 +479,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         $asignaciones = $query->get();
 
         // Obtener asistencias
-        $asistencias = OperacionAsistencia::with(['personalReemplazo', 'motivoAusencia'])
+        $asistencias = OperacionAsistencia::with(['personalReemplazo', 'motivoAusencia', 'permisoReposicion'])
             ->whereIn('personal_asignado_id', $asignaciones->pluck('id'))
             ->where('fecha_asistencia', $fecha)
             ->get()
@@ -489,11 +496,18 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                     ?? $asignacion->configuracionPuesto?->tipoPersonal?->nombre,
                 'asistencia' => $asistencia ? [
                     'id' => $asistencia->id,
-                    'hora_entrada' => $asistencia->hora_entrada?->format('H:i'),
-                    'hora_salida' => $asistencia->hora_salida?->format('H:i'),
                     'estado' => $asistencia->estado_dia,
                     'es_ausente' => $asistencia->es_ausente,
                     'motivo_ausencia' => $asistencia->motivoAusencia,
+                    'hizo_reposicion' => $asistencia->permiso_reposicion_id !== null,
+                    'horas_reposicion' => $asistencia->horas_reposicion,
+                    'permiso_reposicion' => $asistencia->permisoReposicion ? [
+                        'id'                => $asistencia->permisoReposicion->id,
+                        'tipo'              => $asistencia->permisoReposicion->tipo,
+                        'descripcion'       => $asistencia->permisoReposicion->descripcion,
+                        'cantidad_aprobada' => $asistencia->permisoReposicion->cantidad_aprobada,
+                        'saldo_pendiente'   => $asistencia->permisoReposicion->saldo_pendiente,
+                    ] : null,
                 ] : ['id' => null, 'estado' => 'sin_registro'],
             ];
         });
@@ -558,7 +572,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         $asistenciasDirectas = OperacionAsistencia::whereNull('personal_asignado_id')
             ->whereIn('personal_id', $personal->pluck('id'))
             ->where('fecha_asistencia', $fecha)
-            ->with(['motivoAusencia'])
+            ->with(['motivoAusencia', 'permisoReposicion'])
             ->get()
             ->keyBy('personal_id');
 
@@ -643,7 +657,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             $asistenciasDirectas = OperacionAsistencia::whereNull('personal_asignado_id')
                 ->whereIn('personal_id', $personal->pluck('id'))
                 ->where('fecha_asistencia', $fecha)
-                ->with(['motivoAusencia'])
+                ->with(['motivoAusencia', 'permisoReposicion'])
                 ->get()
                 ->keyBy('personal_id');
 
@@ -663,6 +677,15 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                         'es_descanso' => $asistencia->es_descanso,
                         'es_ausente' => $asistencia->es_ausente,
                         'motivo_ausencia' => $asistencia->motivoAusencia,
+                        'hizo_reposicion' => $asistencia->permiso_reposicion_id !== null,
+                        'horas_reposicion' => $asistencia->horas_reposicion,
+                        'permiso_reposicion' => $asistencia->permisoReposicion ? [
+                            'id'                => $asistencia->permisoReposicion->id,
+                            'tipo'              => $asistencia->permisoReposicion->tipo,
+                            'descripcion'       => $asistencia->permisoReposicion->descripcion,
+                            'cantidad_aprobada' => $asistencia->permisoReposicion->cantidad_aprobada,
+                            'saldo_pendiente'   => $asistencia->permisoReposicion->saldo_pendiente,
+                        ] : null,
                         'observaciones' => $asistencia->observaciones,
                     ] : ['id' => null, 'estado' => 'sin_registro'],
                 ];
@@ -908,107 +931,16 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
     }
 
     /**
-     * POST /api/v1/operaciones/asistencia/{id}/entrada
-     * Marca hora de entrada
-     */
-    public function marcarEntrada(Request $request, int $id): JsonResponse
-    {
-        $request->validate([
-            'hora' => 'required|date_format:H:i',
-        ]);
-
-        $asistencia = OperacionAsistencia::findOrFail($id);
-
-        // Verificar restricción de fecha
-        if (!$this->puedeEditarAsistencia($asistencia, $request->user())) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Solo se puede registrar entrada del día anterior. Fecha permitida: ' . Carbon::yesterday()->toDateString(),
-            ], 422);
-        }
-
-        if ($asistencia->es_descanso) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No se puede marcar entrada en un día de descanso.',
-            ], 422);
-        }
-
-        try {
-            $asistencia->marcarEntrada($request->input('hora'), $request->user()?->id);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Entrada registrada correctamente.',
-                'data' => $asistencia,
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $this->parsearErrorPostgres($e->getMessage()),
-            ], 422);
-        }
-    }
-
-    /**
-     * POST /api/v1/operaciones/asistencia/{id}/salida
-     * Marca hora de salida
-     */
-    public function marcarSalida(Request $request, int $id): JsonResponse
-    {
-        $request->validate([
-            'hora' => 'required|date_format:H:i',
-        ]);
-
-        $asistencia = OperacionAsistencia::findOrFail($id);
-
-        // Verificar restricción de fecha
-        if (!$this->puedeEditarAsistencia($asistencia, $request->user())) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Solo se puede registrar salida del día anterior. Fecha permitida: ' . Carbon::yesterday()->toDateString(),
-            ], 422);
-        }
-
-        if ($asistencia->es_descanso) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No se puede marcar salida en un día de descanso.',
-            ], 422);
-        }
-
-        if (!$asistencia->hora_entrada) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Debe registrar la entrada antes de la salida.',
-            ], 422);
-        }
-
-        try {
-            $asistencia->marcarSalida($request->input('hora'), $request->user()?->id);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Salida registrada correctamente.',
-                'data' => $asistencia,
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $this->parsearErrorPostgres($e->getMessage()),
-            ], 422);
-        }
-    }
-
-    /**
      * POST /api/v1/operaciones/asistencia/{id}/ausencia
      * Marca una asistencia como ausencia
      */
     public function marcarAusencia(Request $request, int $id): JsonResponse
     {
         $request->validate([
-            'motivo_ausencia_id' => 'required|exists:catalogo_motivos_ausencia,id',
-            'descripcion' => 'nullable|string|max:500',
+            'motivo_ausencia_id' => 'nullable|exists:catalogo_motivos_ausencia,id',
+            'tipo_inasistencia'  => ['required', Rule::in(['12_horas', '24_horas'])],
+            'descripcion'        => 'nullable|string|max:500',
+            'permiso_id'         => 'nullable|exists:personal_permisos,id',
         ]);
 
         $asistencia = OperacionAsistencia::findOrFail($id);
@@ -1035,23 +967,43 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             ], 422);
         }
 
-        $motivo = MotivoAusencia::findOrFail($request->input('motivo_ausencia_id'));
-        $tipoAusencia = $motivo->es_justificada ? 'justificada' : 'injustificada';
+        $permisoId    = null;
+        $tipoAusencia = null;
+
+        if ($request->filled('permiso_id')) {
+            $personalId = $asistencia->getPersonalIdEfectivo();
+            $permiso    = PersonalPermiso::where('id', $request->input('permiso_id'))
+                ->where('personal_id', $personalId)
+                ->vigentesEn($asistencia->fecha_asistencia->toDateString())
+                ->first();
+
+            if (! $permiso) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El permiso no es válido para este empleado o no está vigente en esta fecha.',
+                ], 422);
+            }
+
+            $permisoId    = $permiso->id;
+            $tipoAusencia = 'justificada';
+        }
 
         try {
             $asistencia->marcarAusencia(
-                $motivo->id,
+                $request->input('motivo_ausencia_id'),
                 $tipoAusencia,
                 $request->input('descripcion'),
-                $request->user()?->id
+                $request->input('tipo_inasistencia'),
+                $request->user()?->id,
+                $permisoId
             );
 
-            $asistencia->load('motivoAusencia');
+            $asistencia->load('motivoAusencia', 'permisoAusencia');
 
             return response()->json([
                 'success' => true,
                 'message' => 'Ausencia registrada correctamente.',
-                'data' => $asistencia,
+                'data'    => $asistencia,
             ]);
         } catch (\Exception $e) {
             return response()->json([
@@ -1059,6 +1011,40 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 'message' => $this->parsearErrorPostgres($e->getMessage()),
             ], 422);
         }
+    }
+
+    /**
+     * GET /api/v1/operaciones/asistencia/{id}/permisos-disponibles
+     * Retorna permisos aprobados vigentes del empleado en la fecha de la asistencia.
+     */
+    public function permisosDisponibles(int $id): JsonResponse
+    {
+        $asistencia = OperacionAsistencia::findOrFail($id);
+        $personalId = $asistencia->getPersonalIdEfectivo();
+
+        if (! $personalId) {
+            return response()->json(['success' => true, 'data' => []]);
+        }
+
+        $fecha    = $asistencia->fecha_asistencia->toDateString();
+        $permisos = PersonalPermiso::where('personal_id', $personalId)
+            ->vigentesEn($fecha)
+            ->orderBy('fecha_inicio')
+            ->get()
+            ->map(fn ($p) => [
+                'id'                => $p->id,
+                'tipo'              => $p->tipo,
+                'cantidad_aprobada' => $p->cantidad_aprobada,
+                'saldo_pendiente'   => $p->saldo_pendiente,
+                'fecha_inicio'      => $p->fecha_inicio?->format('Y-m-d'),
+                'fecha_fin'         => $p->fecha_fin?->format('Y-m-d'),
+                'descripcion'       => $p->descripcion,
+            ]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $permisos,
+        ]);
     }
 
     /**

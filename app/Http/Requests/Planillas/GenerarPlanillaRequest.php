@@ -21,12 +21,14 @@ class GenerarPlanillaRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'periodo_inicio' => 'required|date',
-            'periodo_fin' => 'required|date|after:periodo_inicio',
-            'proyecto_id' => 'nullable|exists:proyectos,id',
-            'departamento_id' => 'nullable|exists:departamentos,id',
-            'observaciones' => 'nullable|string|max:1000',
-            'tipo_calculo' => 'sometimes|in:' . implode(',', PlanillaCalculoStrategyFactory::disponibles()),
+            'periodo_inicio'   => 'required|date',
+            'periodo_fin'      => 'required|date|after:periodo_inicio',
+            'proyecto_id'      => 'nullable|exists:proyectos,id',
+            'departamento_id'  => 'nullable|exists:departamentos,id',
+            'personal_ids'     => 'nullable|array',
+            'personal_ids.*'   => 'integer|exists:personal,id',
+            'observaciones'    => 'nullable|string|max:1000',
+            'tipo_calculo'     => 'sometimes|in:' . implode(',', PlanillaCalculoStrategyFactory::disponibles()),
         ];
     }
 
@@ -41,8 +43,10 @@ class GenerarPlanillaRequest extends FormRequest
             'periodo_fin.required' => 'La fecha de fin del período es requerida',
             'periodo_fin.date' => 'La fecha de fin debe ser una fecha válida',
             'periodo_fin.after' => 'La fecha de fin debe ser posterior a la fecha de inicio',
-            'proyecto_id.exists' => 'El proyecto seleccionado no existe',
+            'proyecto_id.exists'    => 'El proyecto seleccionado no existe',
             'departamento_id.exists' => 'El departamento seleccionado no existe',
+            'personal_ids.array'    => 'El personal debe enviarse como arreglo',
+            'personal_ids.*.exists' => 'Uno o más empleados seleccionados no existen',
             'observaciones.max' => 'Las observaciones no pueden exceder 1000 caracteres',
             'tipo_calculo.in' => 'El tipo de cálculo seleccionado no es válido. Disponibles: ' . implode(', ', PlanillaCalculoStrategyFactory::disponibles()),
         ];

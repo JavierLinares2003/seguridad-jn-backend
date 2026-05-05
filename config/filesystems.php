@@ -59,6 +59,20 @@ return [
             'report' => false,
         ],
 
+        'personal_vacaciones' => [
+            'driver' => 'local',
+            'root' => storage_path('app/personal_vacaciones'),
+            'throw' => false,
+            'report' => false,
+        ],
+
+        'personal_permisos' => [
+            'driver' => 'local',
+            'root' => storage_path('app/personal_permisos'),
+            'throw' => false,
+            'report' => false,
+        ],
+
         'personal_fotos' => [
             'driver' => 'local',
             'root' => storage_path('app/public/personal_fotos'),

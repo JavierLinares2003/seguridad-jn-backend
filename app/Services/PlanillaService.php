@@ -31,7 +31,8 @@ class PlanillaService
         $proyectoId = null,
         $observaciones = null,
         $tipoCalculo = null,
-        $departamentoId = null
+        $departamentoId = null,
+        array $personalIds = []
     ) {
         // Obtener tipo de cálculo (parámetro > config > default)
         $tipoCalculo = $tipoCalculo ?? config('planilla.tipo_calculo_default', 'caso_1');
@@ -67,25 +68,29 @@ class PlanillaService
             // Calcular días hábiles del período
             $diasHabiles = $this->calcularDiasHabiles($periodoInicio, $periodoFin);
 
-            // Obtener personal activo según el ámbito
+            // Obtener personal según ámbito o selección explícita
             $query = Personal::where('estado', 'activo')
                 ->with(['asignacionesActivas.configuracionPuesto', 'asignacionesActivas.turno']);
 
-            // Si se especifica proyecto, filtrar solo personal de ese proyecto
-            if ($proyectoId) {
-                $query->whereHas('asignaciones', function ($q) use ($proyectoId, $periodoFin) {
-                    $q->where('proyecto_id', $proyectoId)
-                      ->where('estado_asignacion', 'activa')
-                      ->where(function ($q2) use ($periodoFin) {
-                          $q2->whereNull('fecha_fin')
-                             ->orWhere('fecha_fin', '>=', $periodoFin);
-                      });
-                });
-            }
+            if (!empty($personalIds)) {
+                // Selección explícita de personal
+                $query->whereIn('id', $personalIds);
+            } else {
+                // Filtro por ámbito (proyecto o departamento)
+                if ($proyectoId) {
+                    $query->whereHas('asignaciones', function ($q) use ($proyectoId, $periodoFin) {
+                        $q->where('proyecto_id', $proyectoId)
+                          ->where('estado_asignacion', 'activa')
+                          ->where(function ($q2) use ($periodoFin) {
+                              $q2->whereNull('fecha_fin')
+                                 ->orWhere('fecha_fin', '>=', $periodoFin);
+                          });
+                    });
+                }
 
-            // Si se especifica departamento, filtrar solo personal de ese departamento
-            if ($departamentoId) {
-                $query->where('departamento_id', $departamentoId);
+                if ($departamentoId) {
+                    $query->where('departamento_id', $departamentoId);
+                }
             }
 
             $personal = $query->get();
@@ -94,11 +99,14 @@ class PlanillaService
                 throw new \Exception('No se encontró personal activo para el ámbito especificado');
             }
 
+            // Registrar el personal seleccionado en la tabla pivot
+            $planilla->personalSeleccionado()->sync($personal->pluck('id')->toArray());
+
             $totalDevengado = 0;
             $totalDescuentos = 0;
             $totalNeto = 0;
 
-            // Generar detalle para cada empleado
+            // Generar detalle para cada empleado (siempre, aunque sea en ceros)
             foreach ($personal as $empleado) {
                 $detalle = $this->calcularDetalleEmpleado(
                     $empleado,
@@ -109,11 +117,9 @@ class PlanillaService
                     $strategy
                 );
 
-                if ($detalle) {
-                    $totalDevengado += $detalle->salario_devengado;
-                    $totalDescuentos += $detalle->total_descuentos;
-                    $totalNeto += $detalle->salario_neto;
-                }
+                $totalDevengado += $detalle->salario_devengado;
+                $totalDescuentos += $detalle->total_descuentos;
+                $totalNeto += $detalle->salario_neto;
             }
 
             // Actualizar totales de planilla
@@ -148,7 +154,7 @@ class PlanillaService
         string $periodoFin,
         int $diasHabiles,
         PlanillaCalculoStrategy $strategy
-    ): ?PlanillaDetalle {
+    ): PlanillaDetalle {
         // Obtener asignación activa (la más reciente)
         $asignacionActiva = $empleado->asignacionesActivas
             ->sortByDesc('fecha_inicio')
@@ -178,12 +184,6 @@ class PlanillaService
         // Calcular descuentos de transacciones (multas, préstamos, etc.)
         $descuentos = $this->calcularDescuentos($empleado->id, $periodoInicio, $periodoFin);
 
-        // Solo crear detalle si hubo actividad o descuentos
-        $totalDias = $diasTrabajados + ($esCaso2 ? $diasDescanso + $diasAusentes : 0);
-        if ($totalDias <= 0 && $descuentos['total'] <= 0) {
-            return null;
-        }
-
         // Preparar datos del empleado para la estrategia
         $datosEmpleado = [
             'salario_base' => $empleado->salario_base ?? 0,
@@ -204,12 +204,27 @@ class PlanillaService
             $horasTrabajadas
         );
 
-        // Penalidad por ausencias (solo Caso 2): 50% de la tarifa diaria por cada día ausente.
-        // La tarifa siempre se calcula sobre 30 días (mes estándar).
+        // salario_esperado: lo que ganaría el empleado si no tuviera ausencias (Caso 2).
+        // Incluye todos los días del período: trabajados + descanso + ausentes.
+        $salarioEsperado = null;
+        if ($esCaso2) {
+            $tarifaDiariaEsperado = (float) ($empleado->salario_base ?? 0) / 30;
+            $salarioEsperado = round($tarifaDiariaEsperado * ($diasTrabajados + $diasDescanso + $diasAusentes), 2);
+        }
+
+        // Descuento por ausencias (solo Caso 2): cuota fija según tipo (12h = Q200, 24h = Q400).
+        // El día no ganado ya queda implícito en que salario_devengado no lo incluye.
         $descuentoAusencias = 0.0;
         if ($esCaso2 && $diasAusentes > 0) {
-            $tarifaDiaria = (float) ($empleado->salario_base ?? 0) / 30;
-            $descuentoAusencias = round($tarifaDiaria * 0.5 * $diasAusentes, 2);
+            $descuentoAusencias = $this->calcularDescuentoAusenciasFijo($empleado->id, $periodoInicio, $periodoFin);
+        }
+
+        // Descuento IGSS proporcional a los días calendario del período (solo si tiene_igss = true)
+        $descuentoIgss = 0.0;
+        if ($empleado->tiene_igss) {
+            $diasPeriodo = Carbon::parse($periodoFin)->diffInDays(Carbon::parse($periodoInicio)) + 1;
+            $baseIgss = ((float) ($empleado->salario_base ?? 0) / 30) * $diasPeriodo;
+            $descuentoIgss = round($baseIgss * config('planilla.igss_porcentaje', 0.0483), 2);
         }
 
         // Calcular pago por hora (referencia, solo Caso 1)
@@ -218,7 +233,7 @@ class PlanillaService
             : 0;
 
         // Calcular totales
-        $totalDescuentos = $descuentos['total'] + $descuentoAusencias;
+        $totalDescuentos = $descuentos['total'] + $descuentoAusencias + $descuentoIgss;
         $salarioNeto = max($salarioDevengado - $totalDescuentos, 0);
 
         // Crear detalle
@@ -232,6 +247,7 @@ class PlanillaService
             'horas_trabajadas' => $horasTrabajadas,
             'horas_por_turno' => $horasPorTurno,
             'pago_por_hora' => round($pagoPorHora, 2),
+            'salario_esperado' => $salarioEsperado,
             'salario_devengado' => $salarioDevengado,
             'descuento_multas' => $descuentos['multa'],
             'descuento_uniformes' => $descuentos['uniforme'],
@@ -240,6 +256,7 @@ class PlanillaService
             'descuento_antecedentes' => $descuentos['antecedentes'],
             'otros_descuentos' => $descuentos['otro_descuento'],
             'descuento_ausencias' => $descuentoAusencias,
+            'descuento_igss' => $descuentoIgss,
             'total_descuentos' => $totalDescuentos,
             'salario_neto' => $salarioNeto,
             'tipo_calculo' => $strategy->getNombre(),
@@ -304,7 +321,6 @@ class PlanillaService
                 $q->whereNull('oa.es_ausente')
                   ->orWhere('oa.es_ausente', false);
             })
-            ->whereNotNull('oa.hora_entrada')
             ->distinct()
             ->count('oa.fecha_asistencia');
     }
@@ -355,7 +371,36 @@ class PlanillaService
     }
 
     /**
-     * Cuenta días de ausencia en el período (Caso 2: generan penalidad del 50%).
+     * Calcula el descuento total por ausencias usando cuotas fijas según tipo_inasistencia.
+     * 12_horas = config('planilla.descuento_inasistencia_12h'), 24_horas = config('planilla.descuento_inasistencia_24h').
+     * Ausencias sin tipo_inasistencia se tratan como 24_horas.
+     */
+    private function calcularDescuentoAusenciasFijo(int $personalId, string $inicio, string $fin): float
+    {
+        $ausencias = DB::table('operaciones_asistencia as oa')
+            ->leftJoin('operaciones_personal_asignado as opa', 'oa.personal_asignado_id', '=', 'opa.id')
+            ->where(function ($query) use ($personalId) {
+                $query->where('opa.personal_id', $personalId)
+                      ->orWhere(function ($q) use ($personalId) {
+                          $q->where('oa.personal_id', $personalId)
+                            ->whereNull('oa.personal_asignado_id');
+                      });
+            })
+            ->whereBetween('oa.fecha_asistencia', [$inicio, $fin])
+            ->where('oa.es_descanso', false)
+            ->where('oa.es_ausente', true)
+            ->whereNull('oa.permiso_ausencia_id')
+            ->select('oa.tipo_inasistencia')
+            ->get();
+
+        $desc12h = (float) config('planilla.descuento_inasistencia_12h', 200);
+        $desc24h = (float) config('planilla.descuento_inasistencia_24h', 400);
+
+        return $ausencias->sum(fn ($a) => $a->tipo_inasistencia === '12_horas' ? $desc12h : $desc24h);
+    }
+
+    /**
+     * Cuenta días de ausencia en el período (Caso 2).
      */
     private function contarDiasAusentes(int $personalId, string $inicio, string $fin): int
     {
@@ -657,27 +702,11 @@ class PlanillaService
             // Calcular días hábiles del período
             $diasHabiles = $this->calcularDiasHabiles($planilla->periodo_inicio, $planilla->periodo_fin);
 
-            // Obtener personal activo según el ámbito de la planilla
-            $query = Personal::where('estado', 'activo')
-                ->with(['asignacionesActivas.configuracionPuesto', 'asignacionesActivas.turno']);
-
-            // Aplicar filtros según el ámbito de la planilla
-            if ($planilla->proyecto_id) {
-                $query->whereHas('asignaciones', function ($q) use ($planilla) {
-                    $q->where('proyecto_id', $planilla->proyecto_id)
-                      ->where('estado_asignacion', 'activa')
-                      ->where(function ($q2) use ($planilla) {
-                          $q2->whereNull('fecha_fin')
-                             ->orWhere('fecha_fin', '>=', $planilla->periodo_fin);
-                      });
-                });
-            }
-
-            if ($planilla->departamento_id) {
-                $query->where('departamento_id', $planilla->departamento_id);
-            }
-
-            $personal = $query->get();
+            // Usar el personal registrado en el pivot (seleccionado originalmente)
+            $personal = $planilla->personalSeleccionado()
+                ->with(['asignacionesActivas.configuracionPuesto', 'asignacionesActivas.turno'])
+                ->where('estado', 'activo')
+                ->get();
 
             if ($personal->isEmpty()) {
                 throw new \Exception('No se encontró personal activo para el ámbito de la planilla');
@@ -687,7 +716,7 @@ class PlanillaService
             $totalDescuentos = 0;
             $totalNeto = 0;
 
-            // Regenerar detalle para cada empleado
+            // Regenerar detalle para cada empleado (siempre, aunque sea en ceros)
             foreach ($personal as $empleado) {
                 $detalle = $this->calcularDetalleEmpleado(
                     $empleado,
@@ -698,11 +727,9 @@ class PlanillaService
                     $strategy
                 );
 
-                if ($detalle) {
-                    $totalDevengado += $detalle->salario_devengado;
-                    $totalDescuentos += $detalle->total_descuentos;
-                    $totalNeto += $detalle->salario_neto;
-                }
+                $totalDevengado += $detalle->salario_devengado;
+                $totalDescuentos += $detalle->total_descuentos;
+                $totalNeto += $detalle->salario_neto;
             }
 
             // Actualizar totales de planilla

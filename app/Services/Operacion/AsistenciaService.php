@@ -125,11 +125,7 @@ class AsistenciaService
                 ],
                 'asistencia' => $asistencia ? [
                     'id' => $asistencia->id,
-                    'hora_entrada' => $asistencia->hora_entrada?->format('H:i'),
-                    'hora_salida' => $asistencia->hora_salida?->format('H:i'),
                     'estado' => $asistencia->estado_dia,
-                    'llego_tarde' => $asistencia->llego_tarde,
-                    'minutos_retraso' => $asistencia->minutos_retraso,
                     'es_descanso' => $asistencia->es_descanso,
                     'fue_reemplazado' => $asistencia->fue_reemplazado,
                     'reemplazo' => $asistencia->personalReemplazo,
@@ -161,17 +157,15 @@ class AsistenciaService
             ],
             'estadisticas' => [
                 'total_registros' => $asistencias->count(),
-                'presentes' => $asistencias->where('es_descanso', false)->whereNotNull('hora_entrada')->count(),
-                'ausentes' => $asistencias->where('es_descanso', false)->where('fue_reemplazado', false)->whereNull('hora_entrada')->count(),
+                'presentes' => $asistencias->where('es_descanso', false)->where('es_ausente', false)->count(),
+                'ausentes' => $asistencias->where('es_ausente', true)->count(),
                 'descansos' => $asistencias->where('es_descanso', true)->count(),
                 'reemplazos' => $asistencias->where('fue_reemplazado', true)->count(),
-                'tardanzas' => $asistencias->where('llego_tarde', true)->count(),
-                'total_minutos_retraso' => $asistencias->sum('minutos_retraso'),
             ],
             'por_fecha' => $asistencias->groupBy(fn($a) => $a->fecha_asistencia->toDateString())
                 ->map(fn($grupo) => [
-                    'presentes' => $grupo->where('es_descanso', false)->whereNotNull('hora_entrada')->count(),
-                    'ausentes' => $grupo->where('es_descanso', false)->where('fue_reemplazado', false)->whereNull('hora_entrada')->count(),
+                    'presentes' => $grupo->where('es_descanso', false)->where('es_ausente', false)->count(),
+                    'ausentes' => $grupo->where('es_ausente', true)->count(),
                     'descansos' => $grupo->where('es_descanso', true)->count(),
                     'reemplazos' => $grupo->where('fue_reemplazado', true)->count(),
                 ]),
@@ -266,9 +260,9 @@ class AsistenciaService
             ->get();
 
         $totalDias = $fechaInicio->diffInDays($fechaFin) + 1;
-        $diasTrabajados = $asistencias->where('es_descanso', false)->whereNotNull('hora_entrada')->count();
+        $diasTrabajados = $asistencias->where('es_descanso', false)->where('es_ausente', false)->count();
         $diasDescanso = $asistencias->where('es_descanso', true)->count();
-        $tardanzas = $asistencias->where('llego_tarde', true)->count();
+        $diasAusente = $asistencias->where('es_ausente', true)->count();
 
         return [
             'personal_id' => $personalId,
@@ -280,11 +274,8 @@ class AsistenciaService
                 'total_dias' => $totalDias,
                 'dias_trabajados' => $diasTrabajados,
                 'dias_descanso' => $diasDescanso,
-                'dias_ausente' => $totalDias - $diasTrabajados - $diasDescanso,
-                'tardanzas' => $tardanzas,
-                'total_minutos_retraso' => $asistencias->sum('minutos_retraso'),
-                'horas_trabajadas' => $asistencias->sum('horas_trabajadas'),
-                'porcentaje_asistencia' => $totalDias > 0
+                'dias_ausente' => $diasAusente,
+                'porcentaje_asistencia' => ($totalDias - $diasDescanso) > 0
                     ? round(($diasTrabajados / ($totalDias - $diasDescanso)) * 100, 2)
                     : 0,
             ],
@@ -293,10 +284,6 @@ class AsistenciaService
                 'proyecto' => $a->asignacion?->proyecto?->nombre_proyecto,
                 'turno' => $a->asignacion?->turno?->nombre,
                 'estado' => $a->estado_dia,
-                'hora_entrada' => $a->hora_entrada?->format('H:i'),
-                'hora_salida' => $a->hora_salida?->format('H:i'),
-                'horas_trabajadas' => $a->horas_trabajadas,
-                'minutos_retraso' => $a->minutos_retraso,
                 'observaciones' => $a->observaciones,
             ]),
         ];
@@ -322,6 +309,8 @@ class AsistenciaService
             $datos['motivo_ausencia_id'] = null;
             $datos['descripcion_ausencia'] = null;
             $datos['tipo_ausencia'] = null;
+            $datos['tipo_inasistencia'] = null;
+            $datos['permiso_ausencia_id'] = null;
             $datos['fue_reemplazado'] = false;
             $datos['personal_reemplazo_id'] = null;
             $datos['motivo_reemplazo'] = null;
@@ -329,28 +318,27 @@ class AsistenciaService
             return $datos;
         }
 
-        // Si es ausente, limpiar campos de asistencia normal
+        // Si es ausente, limpiar solo campos de asistencia normal
         if (!empty($datos['es_ausente']) && $datos['es_ausente'] === true) {
+            $datos['es_descanso'] = false;
             $datos['hora_entrada'] = null;
             $datos['hora_salida'] = null;
             $datos['llego_tarde'] = false;
             $datos['minutos_retraso'] = 0;
-            $datos['es_descanso'] = false;
+            // No limpiar permiso_reposicion_id ni horas_reposicion (se preservan si vienen)
 
             return $datos;
         }
 
-        // Si tiene hora de entrada (asistencia normal), limpiar campos de ausencia/reemplazo
-        if (!empty($datos['hora_entrada'])) {
-            $datos['es_ausente'] = false;
-            $datos['motivo_ausencia_id'] = null;
-            $datos['descripcion_ausencia'] = null;
-            $datos['tipo_ausencia'] = null;
-            $datos['fue_reemplazado'] = false;
-            $datos['personal_reemplazo_id'] = null;
-            $datos['motivo_reemplazo'] = null;
-            $datos['es_descanso'] = false;
-        }
+        // Asistencia normal (presente): limpiar campos de ausencia pero preservar reposición
+        $datos['es_ausente'] = false;
+        $datos['motivo_ausencia_id'] = null;
+        $datos['descripcion_ausencia'] = null;
+        $datos['tipo_ausencia'] = null;
+        $datos['tipo_inasistencia'] = null;
+        $datos['permiso_ausencia_id'] = null;
+        $datos['es_descanso'] = false;
+        // permiso_reposicion_id y horas_reposicion se preservan si vienen en datos
 
         return $datos;
     }

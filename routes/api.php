@@ -17,6 +17,9 @@ use App\Http\Controllers\Api\V1\PrestamoController;
 use App\Http\Controllers\Api\V1\TransaccionController;
 use App\Http\Controllers\Api\V1\AlertaCoberturaController;
 use App\Http\Controllers\Api\V1\BitacoraController;
+use App\Http\Controllers\Api\V1\VacacionConfigController;
+use App\Http\Controllers\Api\V1\PersonalVacacionController;
+use App\Http\Controllers\Api\V1\PersonalPermisoController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -169,6 +172,20 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.roles.show');
         });
 
+        // Configuración de Vacaciones
+        Route::prefix('configuracion/vacaciones')
+            ->middleware(['api.permission:manage-vacaciones'])
+            ->group(function () {
+                Route::get('/', [VacacionConfigController::class, 'index'])
+                    ->name('api.v1.config.vacaciones.index');
+                Route::post('/', [VacacionConfigController::class, 'store'])
+                    ->name('api.v1.config.vacaciones.store');
+                Route::put('/{id}', [VacacionConfigController::class, 'update'])
+                    ->name('api.v1.config.vacaciones.update');
+                Route::delete('/{id}', [VacacionConfigController::class, 'destroy'])
+                    ->name('api.v1.config.vacaciones.destroy');
+            });
+
         // Bitacora/Audit Log Routes
         Route::prefix('bitacora')->group(function () {
             Route::get('/', [BitacoraController::class, 'index'])
@@ -310,6 +327,36 @@ Route::prefix('v1')->group(function () {
             // Historial de Salarios
             Route::get('/{personal}/historial-salarios', [PersonalController::class, 'getHistorialSalarios'])
                 ->name('api.v1.personal.historial-salarios');
+
+            // Permisos de ausencia
+            Route::get('/{personal}/permisos', [PersonalPermisoController::class, 'index'])
+                ->name('api.v1.personal.permisos.index');
+            Route::post('/{personal}/permisos', [PersonalPermisoController::class, 'store'])
+                ->name('api.v1.personal.permisos.store');
+            Route::get('/{personal}/permisos/{permiso}', [PersonalPermisoController::class, 'show'])
+                ->name('api.v1.personal.permisos.show');
+            Route::put('/{personal}/permisos/{permiso}', [PersonalPermisoController::class, 'update'])
+                ->name('api.v1.personal.permisos.update');
+            Route::delete('/{personal}/permisos/{permiso}', [PersonalPermisoController::class, 'destroy'])
+                ->name('api.v1.personal.permisos.destroy');
+            Route::get('/{personal}/permisos/{permiso}/documento', [PersonalPermisoController::class, 'downloadDocumento'])
+                ->name('api.v1.personal.permisos.documento');
+
+            // Vacaciones (requiere permiso manage-vacaciones — operaciones no tiene acceso)
+            Route::middleware(['api.permission:manage-vacaciones'])->group(function () {
+                Route::get('/{personal}/vacaciones', [PersonalVacacionController::class, 'index'])
+                    ->name('api.v1.personal.vacaciones.index');
+                Route::post('/{personal}/vacaciones', [PersonalVacacionController::class, 'store'])
+                    ->name('api.v1.personal.vacaciones.store');
+                Route::put('/{personal}/vacaciones/{vacacion}', [PersonalVacacionController::class, 'update'])
+                    ->name('api.v1.personal.vacaciones.update');
+                Route::delete('/{personal}/vacaciones/{vacacion}', [PersonalVacacionController::class, 'destroy'])
+                    ->name('api.v1.personal.vacaciones.destroy');
+                Route::get('/{personal}/vacaciones/{vacacion}/documento', [PersonalVacacionController::class, 'downloadDocumento'])
+                    ->name('api.v1.personal.vacaciones.documento');
+                Route::patch('/{personal}/vacaciones-saldo', [PersonalVacacionController::class, 'updateSaldoInicial'])
+                    ->name('api.v1.personal.vacaciones.saldo');
+            });
         });
 
         /*
@@ -432,16 +479,11 @@ Route::prefix('v1')->group(function () {
                 ->whereNumber('id');
 
             // Acciones sobre asistencia específica
-            Route::post('/asistencia/{id}/entrada', [OperacionAsistenciaController::class, 'marcarEntrada'])
-                ->name('api.v1.operaciones.asistencia.entrada')
-                ->whereNumber('id');
-
-            Route::post('/asistencia/{id}/salida', [OperacionAsistenciaController::class, 'marcarSalida'])
-                ->name('api.v1.operaciones.asistencia.salida')
-                ->whereNumber('id');
-
             Route::post('/asistencia/{id}/ausencia', [OperacionAsistenciaController::class, 'marcarAusencia'])
                 ->name('api.v1.operaciones.asistencia.ausencia')
+                ->whereNumber('id');
+            Route::get('/asistencia/{id}/permisos-disponibles', [OperacionAsistenciaController::class, 'permisosDisponibles'])
+                ->name('api.v1.operaciones.asistencia.permisos-disponibles')
                 ->whereNumber('id');
 
             // Préstamos

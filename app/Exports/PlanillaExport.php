@@ -64,22 +64,28 @@ class PlanillaExport implements FromArray, WithTitle, WithStyles, WithColumnWidt
         $rows[] = []; // Fila vacía antes de la tabla
 
         // --- Encabezados de la tabla ---
+        // Columnas: A-T (20 columnas)
         $rows[] = [
-            '#',
-            'Empleado',
-            'Proyecto',
-            'Días Trabajados',
-            'Horas Trabajadas',
-            'Salario Devengado',
-            'Bonificación',
-            'Desc. Multas',
-            'Desc. Uniformes',
-            'Desc. Anticipos',
-            'Desc. Préstamos',
-            'Desc. Antecedentes',
-            'Otros Descuentos',
-            'Total Descuentos',
-            'Salario Neto',
+            '#',                  // A
+            'Empleado',           // B
+            'Proyecto',           // C
+            'Días Trabajados',    // D
+            'Días Descanso',      // E
+            'Días Ausentes',      // F
+            'Horas Trabajadas',   // G
+            'Salario Esperado',   // H
+            'Salario Devengado',  // I
+            'Bonificación',       // J
+            'Desc. Ausencias',    // K
+            'Desc. IGSS',         // L
+            'Desc. Multas',       // M
+            'Desc. Uniformes',    // N
+            'Desc. Anticipos',    // O
+            'Desc. Préstamos',    // P
+            'Desc. Antecedentes', // Q
+            'Otros Descuentos',   // R
+            'Total Descuentos',   // S
+            'Salario Neto',       // T
         ];
 
         // --- Filas de detalle ---
@@ -92,9 +98,14 @@ class PlanillaExport implements FromArray, WithTitle, WithStyles, WithColumnWidt
                     : 'N/A',
                 $detalle->proyecto?->nombre_proyecto ?? '—',
                 $detalle->dias_trabajados,
+                $detalle->dias_descanso,
+                $detalle->dias_ausentes,
                 (float) $detalle->horas_trabajadas,
+                $detalle->salario_esperado !== null ? (float) $detalle->salario_esperado : '—',
                 (float) $detalle->salario_devengado,
                 (float) $detalle->bonificacion,
+                (float) $detalle->descuento_ausencias,
+                (float) $detalle->descuento_igss,
                 (float) $detalle->descuento_multas,
                 (float) $detalle->descuento_uniformes,
                 (float) $detalle->descuento_anticipos,
@@ -111,18 +122,23 @@ class PlanillaExport implements FromArray, WithTitle, WithStyles, WithColumnWidt
             '',
             'TOTALES',
             '',
-            $p->detalles->sum('dias_trabajados'),
-            '',
-            (float) $p->total_devengado,
-            '',
-            (float) $p->detalles->sum('descuento_multas'),
-            (float) $p->detalles->sum('descuento_uniformes'),
-            (float) $p->detalles->sum('descuento_anticipos'),
-            (float) $p->detalles->sum('descuento_prestamos'),
-            (float) $p->detalles->sum('descuento_antecedentes'),
-            (float) $p->detalles->sum('otros_descuentos'),
-            (float) $p->total_descuentos,
-            (float) $p->total_neto,
+            $p->detalles->sum('dias_trabajados'),   // D
+            $p->detalles->sum('dias_descanso'),      // E
+            $p->detalles->sum('dias_ausentes'),      // F
+            '',                                      // G horas
+            (float) $p->detalles->sum('salario_esperado'),  // H
+            (float) $p->total_devengado,             // I
+            '',                                      // J bonificacion
+            (float) $p->detalles->sum('descuento_ausencias'), // K
+            (float) $p->detalles->sum('descuento_igss'),      // L
+            (float) $p->detalles->sum('descuento_multas'),    // M
+            (float) $p->detalles->sum('descuento_uniformes'), // N
+            (float) $p->detalles->sum('descuento_anticipos'), // O
+            (float) $p->detalles->sum('descuento_prestamos'), // P
+            (float) $p->detalles->sum('descuento_antecedentes'), // Q
+            (float) $p->detalles->sum('otros_descuentos'),    // R
+            (float) $p->total_descuentos,            // S
+            (float) $p->total_neto,                  // T
         ];
 
         return $rows;
@@ -136,21 +152,26 @@ class PlanillaExport implements FromArray, WithTitle, WithStyles, WithColumnWidt
     public function columnWidths(): array
     {
         return [
-            'A' => 5,
-            'B' => 30,
-            'C' => 22,
-            'D' => 16,
-            'E' => 16,
-            'F' => 18,
-            'G' => 14,
-            'H' => 14,
-            'I' => 16,
-            'J' => 16,
-            'K' => 16,
-            'L' => 18,
-            'M' => 16,
-            'N' => 16,
-            'O' => 14,
+            'A' => 5,   // #
+            'B' => 30,  // Empleado
+            'C' => 22,  // Proyecto
+            'D' => 16,  // Días Trabajados
+            'E' => 14,  // Días Descanso
+            'F' => 14,  // Días Ausentes
+            'G' => 16,  // Horas Trabajadas
+            'H' => 18,  // Salario Esperado
+            'I' => 18,  // Salario Devengado
+            'J' => 14,  // Bonificación
+            'K' => 16,  // Desc. Ausencias
+            'L' => 14,  // Desc. IGSS
+            'M' => 14,  // Desc. Multas
+            'N' => 16,  // Desc. Uniformes
+            'O' => 16,  // Desc. Anticipos
+            'P' => 16,  // Desc. Préstamos
+            'Q' => 18,  // Desc. Antecedentes
+            'R' => 16,  // Otros Descuentos
+            'S' => 16,  // Total Descuentos
+            'T' => 14,  // Salario Neto
         ];
     }
 
@@ -192,13 +213,13 @@ class PlanillaExport implements FromArray, WithTitle, WithStyles, WithColumnWidt
                 $sheet = $event->sheet->getDelegate();
                 $totalFilas = $this->filaInicio + $this->planilla->detalles->count();
                 $filaTotal  = $totalFilas + 1;
-                $lastCol    = 'O';
+                $lastCol    = 'T';
 
                 // Combinar celdas del título
                 $sheet->mergeCells("A1:{$lastCol}1");
 
-                // Formato moneda para columnas numéricas (F, G, H, I, J, K, L, M, N, O)
-                $colsMoneda = ['F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O'];
+                // Formato moneda para columnas H-T (salario_esperado … salario_neto)
+                $colsMoneda = ['H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T'];
                 foreach ($colsMoneda as $col) {
                     $sheet->getStyle("{$col}{$this->filaInicio}:{$col}{$filaTotal}")
                         ->getNumberFormat()
@@ -223,10 +244,10 @@ class PlanillaExport implements FromArray, WithTitle, WithStyles, WithColumnWidt
                     }
                 }
 
-                // Centrar columnas A, D, E
+                // Centrar columnas A, D, E, F, G (numericas enteras)
                 $sheet->getStyle("A{$primerFila}:A{$filaTotal}")
                     ->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-                $sheet->getStyle("D{$primerFila}:E{$filaTotal}")
+                $sheet->getStyle("D{$primerFila}:G{$filaTotal}")
                     ->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
 
                 // Altura de la fila de encabezados

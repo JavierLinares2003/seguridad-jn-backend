@@ -13,9 +13,9 @@ class Caso2Strategy implements PlanillaCalculoStrategy
      *
      * Días pagados:
      * - Días trabajados + días de descanso (ambos se pagan igual).
-     * - Días ausentes: NO se pagan y generan una penalidad del 50% de la tarifa diaria.
-     *   La penalidad se retorna en $empleado['descuento_ausencias'] para que
-     *   PlanillaService la incluya en los descuentos del detalle.
+     * - Días ausentes: NO se incluyen en salario_devengado (día no ganado implícito)
+     *   y generan una penalidad adicional de 0.5× la tarifa diaria, calculada en
+     *   PlanillaService y guardada en descuento_ausencias del detalle.
      *
      * Fórmula:
      * 1. tarifa_diaria = salario_base / dias_habiles

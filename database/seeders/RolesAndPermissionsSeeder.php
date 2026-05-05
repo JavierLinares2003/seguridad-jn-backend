@@ -87,6 +87,12 @@ class RolesAndPermissionsSeeder extends Seeder
             'export-planillas',
             'cancel-planillas',
             'mark-planillas-paid',
+
+            // VACACIONES Module
+            'manage-vacaciones',        // Registrar, editar, eliminar vacaciones y configurar días
+
+            // Datos sensibles de personal (salario, banco, salud, familia)
+            'view-personal-sensible',
         ];
 
         // Create permissions
@@ -134,6 +140,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'manage-personal-familiares',
             'manage-personal-referencias',
             'manage-personal-redes-sociales',
+            'view-personal-sensible',
             'view-catalogos',
 
             // Projects
@@ -158,6 +165,9 @@ class RolesAndPermissionsSeeder extends Seeder
             'create-planillas',
             'approve-planillas',
             'export-planillas',
+
+            // Vacaciones
+            'manage-vacaciones',
         ]);
     }
 
@@ -200,6 +210,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'edit-personal',
             'delete-personal',
             'restore-personal',
+            'view-personal-sensible',
 
             // Personal documents (full access)
             'view-documentos',
@@ -212,6 +223,9 @@ class RolesAndPermissionsSeeder extends Seeder
             'manage-personal-familiares',
             'manage-personal-referencias',
             'manage-personal-redes-sociales',
+
+            // Vacaciones (full access)
+            'manage-vacaciones',
 
             // Catalogs (view only - needed for forms)
             'view-catalogos',
@@ -254,6 +268,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'view-personal',
             'view-documentos',
             'download-documentos',
+            'view-personal-sensible',  // Necesita ver salario para planilla
 
             // Projects (solo ver - no puede crear)
             'view-proyectos',
@@ -272,6 +287,9 @@ class RolesAndPermissionsSeeder extends Seeder
             // Transacciones y préstamos (acceso completo)
             'manage-transacciones',
             'manage-prestamos',
+
+            // Vacaciones (acceso completo - para gestión de nómina)
+            'manage-vacaciones',
 
             // Catalogs (view only - needed for forms)
             'view-catalogos',

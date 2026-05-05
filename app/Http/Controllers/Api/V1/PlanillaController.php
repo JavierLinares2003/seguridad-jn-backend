@@ -35,7 +35,8 @@ class PlanillaController extends Controller
                 $request->proyecto_id,
                 $request->observaciones,
                 $request->tipo_calculo,
-                $request->departamento_id
+                $request->departamento_id,
+                $request->input('personal_ids', [])
             );
 
             return response()->json([
@@ -113,7 +114,7 @@ class PlanillaController extends Controller
 
     /**
      * Obtener detalle de planilla
-     * 
+     *
      * @param int $id
      * @return JsonResponse
      */
@@ -122,28 +123,80 @@ class PlanillaController extends Controller
         $planilla = Planilla::with([
             'detalles.personal',
             'detalles.proyecto',
-            'detalles.planilla', // Necesario para el accessor de transacciones
+            'detalles.planilla',
+            'personalSeleccionado',
             'creadoPor',
             'aprobadoPor',
             'proyecto',
-            'departamento'
+            'departamento',
         ])->findOrFail($id);
 
-        // Agregar las transacciones con el usuario que las registró a cada detalle
-        $planilla->detalles->each(function ($detalle) use ($planilla) {
+        // Indexar detalles por personal_id para búsqueda rápida
+        $detallesPorPersonal = $planilla->detalles->keyBy('personal_id');
+
+        // Agregar transacciones a cada detalle
+        $detallesPorPersonal->each(function ($detalle) use ($planilla) {
             $detalle->transacciones = \App\Models\Transaccion::with('registradoPor:id,name')
                 ->where('personal_id', $detalle->personal_id)
                 ->whereBetween('fecha_transaccion', [
                     $planilla->periodo_inicio,
-                    $planilla->periodo_fin
+                    $planilla->periodo_fin,
                 ])
                 ->where('es_descuento', true)
                 ->get();
         });
 
+        // Construir detalles completos: uno por cada persona seleccionada
+        $detalles = $planilla->personalSeleccionado
+            ->map(function ($empleado) use ($detallesPorPersonal, $planilla) {
+                $detalle = $detallesPorPersonal->get($empleado->id);
+
+                if ($detalle) {
+                    return $detalle->toArray() + ['sin_actividad' => false];
+                }
+
+                // Persona seleccionada pero sin detalle (planilla antigua o sin actividad)
+                return [
+                    'id'                     => null,
+                    'planilla_id'            => $planilla->id,
+                    'personal_id'            => $empleado->id,
+                    'personal'               => $empleado->toArray(),
+                    'proyecto_id'            => null,
+                    'proyecto'               => null,
+                    'dias_trabajados'        => 0,
+                    'dias_descanso'          => 0,
+                    'dias_ausentes'          => 0,
+                    'horas_trabajadas'       => 0,
+                    'horas_por_turno'        => 0,
+                    'pago_por_hora'          => 0,
+                    'salario_devengado'      => 0,
+                    'bonificacion'           => 0,
+                    'horas_extra'            => 0,
+                    'descuento_multas'       => 0,
+                    'descuento_uniformes'    => 0,
+                    'descuento_anticipos'    => 0,
+                    'descuento_prestamos'    => 0,
+                    'descuento_antecedentes' => 0,
+                    'otros_descuentos'       => 0,
+                    'descuento_ausencias'    => 0,
+                    'descuento_igss'         => 0,
+                    'total_descuentos'       => 0,
+                    'salario_neto'           => 0,
+                    'tipo_calculo'           => null,
+                    'observaciones'          => null,
+                    'transacciones'          => [],
+                    'sin_actividad'          => true,
+                ];
+            })
+            ->sortBy('personal.apellidos')
+            ->values();
+
+        $planillaData = $planilla->toArray();
+        $planillaData['detalles'] = $detalles;
+
         return response()->json([
             'success' => true,
-            'data' => $planilla,
+            'data'    => $planillaData,
         ]);
     }
 

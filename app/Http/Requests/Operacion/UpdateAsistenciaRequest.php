@@ -17,14 +17,6 @@ class UpdateAsistenciaRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'hora_entrada' => [
-                'nullable',
-                'date_format:H:i',
-            ],
-            'hora_salida' => [
-                'nullable',
-                'date_format:H:i',
-            ],
             'es_descanso' => [
                 'nullable',
                 'boolean',
@@ -50,14 +42,24 @@ class UpdateAsistenciaRequest extends FormRequest
                 'string',
                 'max:1000',
             ],
+            'permiso_reposicion_id' => [
+                'nullable',
+                'integer',
+                'exists:personal_permisos,id',
+            ],
+            'horas_reposicion' => [
+                'nullable',
+                'numeric',
+                'min:0.5',
+                'max:24',
+                'required_with:permiso_reposicion_id',
+            ],
         ];
     }
 
     public function messages(): array
     {
         return [
-            'hora_entrada.date_format' => 'La hora de entrada debe estar en formato HH:MM.',
-            'hora_salida.date_format' => 'La hora de salida debe estar en formato HH:MM.',
             'personal_reemplazo_id.exists' => 'El personal de reemplazo no existe.',
             'personal_reemplazo_id.required_if' => 'Debe especificar el personal de reemplazo.',
             'motivo_reemplazo.required_if' => 'Debe especificar el motivo del reemplazo.',

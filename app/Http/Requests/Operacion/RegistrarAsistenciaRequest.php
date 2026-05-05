@@ -39,15 +39,6 @@ class RegistrarAsistenciaRequest extends FormRequest
                 'date',
                 'before_or_equal:today',
             ],
-            'asistencias.*.hora_entrada' => [
-                'nullable',
-                'date_format:H:i',
-                'required_without_all:asistencias.*.es_descanso,asistencias.*.es_ausente',
-            ],
-            'asistencias.*.hora_salida' => [
-                'nullable',
-                'date_format:H:i',
-            ],
             'asistencias.*.es_descanso' => [
                 'nullable',
                 'boolean',
@@ -60,7 +51,7 @@ class RegistrarAsistenciaRequest extends FormRequest
                 'nullable',
                 'integer',
                 'exists:catalogo_motivos_ausencia,id',
-                'required_if:asistencias.*.es_ausente,true',
+                // 'required_if:asistencias.*.es_ausente,true',
             ],
             'asistencias.*.descripcion_ausencia' => [
                 'nullable',
@@ -71,6 +62,12 @@ class RegistrarAsistenciaRequest extends FormRequest
                 'nullable',
                 'string',
                 Rule::in(['justificada', 'injustificada']),
+                'required_if:asistencias.*.es_ausente,true',
+            ],
+            'asistencias.*.tipo_inasistencia' => [
+                'nullable',
+                'string',
+                Rule::in(['12_horas', '24_horas']),
                 'required_if:asistencias.*.es_ausente,true',
             ],
             'asistencias.*.fue_reemplazado' => [
@@ -93,6 +90,18 @@ class RegistrarAsistenciaRequest extends FormRequest
                 'string',
                 'max:1000',
             ],
+            'asistencias.*.permiso_reposicion_id' => [
+                'nullable',
+                'integer',
+                'exists:personal_permisos,id',
+            ],
+            'asistencias.*.horas_reposicion' => [
+                'nullable',
+                'numeric',
+                'min:0.5',
+                'max:24',
+                'required_with:asistencias.*.permiso_reposicion_id',
+            ],
         ];
     }
 
@@ -109,13 +118,12 @@ class RegistrarAsistenciaRequest extends FormRequest
             'asistencias.*.fecha_asistencia.required' => 'La fecha es obligatoria.',
             'asistencias.*.fecha_asistencia.date' => 'La fecha debe ser válida.',
             'asistencias.*.fecha_asistencia.before_or_equal' => 'No puede registrar asistencia para fechas futuras.',
-            'asistencias.*.hora_entrada.date_format' => 'La hora de entrada debe estar en formato HH:MM.',
-            'asistencias.*.hora_entrada.required_without_all' => 'Debe indicar hora de entrada, marcar como descanso o marcar como ausente.',
-            'asistencias.*.hora_salida.date_format' => 'La hora de salida debe estar en formato HH:MM.',
             'asistencias.*.motivo_ausencia_id.exists' => 'El motivo de ausencia no existe.',
             'asistencias.*.motivo_ausencia_id.required_if' => 'Debe especificar el motivo de ausencia.',
             'asistencias.*.tipo_ausencia.required_if' => 'Debe especificar si la ausencia es justificada o injustificada.',
             'asistencias.*.tipo_ausencia.in' => 'El tipo de ausencia debe ser justificada o injustificada.',
+            'asistencias.*.tipo_inasistencia.required_if' => 'Debe especificar el tipo de inasistencia (12_horas o 24_horas).',
+            'asistencias.*.tipo_inasistencia.in' => 'El tipo de inasistencia debe ser 12_horas o 24_horas.',
             'asistencias.*.descripcion_ausencia.max' => 'La descripción de ausencia no puede exceder 500 caracteres.',
             'asistencias.*.personal_reemplazo_id.exists' => 'El personal de reemplazo no existe.',
             'asistencias.*.personal_reemplazo_id.required_if' => 'Debe especificar el personal de reemplazo.',

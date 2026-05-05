@@ -49,6 +49,14 @@ class Planilla extends Model
     {
         return $this->hasMany(PlanillaDetalle::class);
     }
+
+    /**
+     * Personal explícitamente seleccionado para esta planilla
+     */
+    public function personalSeleccionado(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(Personal::class, 'planillas_personal');
+    }
     
     /**
      * Usuario que creó la planilla

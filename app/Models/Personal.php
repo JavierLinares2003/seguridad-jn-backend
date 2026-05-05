@@ -61,6 +61,7 @@ class Personal extends Model
         'departamento_id',
         'fecha_inicio',
         'observaciones',
+        'vacaciones_saldo_inicial',
         'foto_perfil',
         'estado',
     ];
@@ -80,6 +81,7 @@ class Personal extends Model
             'tiene_igss' => 'boolean',
             'tiene_prestaciones' => 'boolean',
             'tiene_bono14' => 'boolean',
+            'vacaciones_saldo_inicial' => 'integer',
         ];
     }
 
@@ -213,6 +215,16 @@ class Personal extends Model
         return $this->hasMany(PersonalHistorialSalario::class, 'personal_id');
     }
 
+    public function vacaciones(): HasMany
+    {
+        return $this->hasMany(PersonalVacacion::class, 'personal_id');
+    }
+
+    public function permisos(): HasMany
+    {
+        return $this->hasMany(PersonalPermiso::class, 'personal_id');
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Scopes
@@ -240,14 +252,21 @@ class Personal extends Model
             return $query;
         }
 
-        return $query->where(function ($q) use ($termino) {
-            $q->where('nombres', 'ilike', "%{$termino}%")
-              ->orWhere('apellidos', 'ilike', "%{$termino}%")
-              ->orWhere('dpi', 'ilike', "%{$termino}%")
-              ->orWhere('email', 'ilike', "%{$termino}%")
-              ->orWhere('telefono', 'ilike', "%{$termino}%")
-              ->orWhere('puesto', 'ilike', "%{$termino}%");
-        });
+        $tokens = array_values(array_filter(explode(' ', trim($termino))));
+
+        foreach ($tokens as $token) {
+            $like = '%' . $token . '%';
+            $query->where(function ($q) use ($like) {
+                $q->whereRaw("unaccent(nombres) ilike unaccent(?)", [$like])
+                  ->orWhereRaw("unaccent(apellidos) ilike unaccent(?)", [$like])
+                  ->orWhereRaw("unaccent(puesto) ilike unaccent(?)", [$like])
+                  ->orWhere('dpi', 'like', $like)
+                  ->orWhere('email', 'like', $like)
+                  ->orWhere('telefono', 'like', $like);
+            });
+        }
+
+        return $query;
     }
 
     public function scopeByDepartamento($query, ?int $departamentoId)

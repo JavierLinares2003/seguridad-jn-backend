@@ -37,10 +37,15 @@ class OperacionAsistencia extends Model
         'motivo_ausencia_id',
         'descripcion_ausencia',
         'tipo_ausencia',
+        'tipo_inasistencia',
         'es_ausente',
         // Campos de planilla
         'planilla_id',
         'procesado_planilla',
+        // Campos de permisos de ausencia
+        'permiso_ausencia_id',
+        'permiso_reposicion_id',
+        'horas_reposicion',
     ];
 
     protected function casts(): array
@@ -100,15 +105,10 @@ class OperacionAsistencia extends Model
                 }
 
                 if ($this->es_ausente) {
+                    if ($this->permiso_ausencia_id) {
+                        return 'ausente_con_permiso';
+                    }
                     return $this->tipo_ausencia === 'justificada' ? 'ausente_justificado' : 'ausente_injustificado';
-                }
-
-                if (!$this->hora_entrada) {
-                    return 'sin_registro';
-                }
-
-                if ($this->llego_tarde) {
-                    return 'tarde';
                 }
 
                 return 'presente';
@@ -161,6 +161,16 @@ class OperacionAsistencia extends Model
     public function planilla(): BelongsTo
     {
         return $this->belongsTo(Planilla::class, 'planilla_id');
+    }
+
+    public function permisoAusencia(): BelongsTo
+    {
+        return $this->belongsTo(PersonalPermiso::class, 'permiso_ausencia_id');
+    }
+
+    public function permisoReposicion(): BelongsTo
+    {
+        return $this->belongsTo(PersonalPermiso::class, 'permiso_reposicion_id');
     }
 
     /*
@@ -321,12 +331,14 @@ class OperacionAsistencia extends Model
         return $this->es_ausente && $this->tipo_ausencia === 'injustificada';
     }
 
-    public function marcarAusencia(int $motivoAusenciaId, string $tipoAusencia, ?string $descripcion = null, ?int $userId = null): bool
+    public function marcarAusencia(?int $motivoAusenciaId, ?string $tipoAusencia, ?string $descripcion = null, ?string $tipoInasistencia = null, ?int $userId = null, ?int $permisoAusenciaId = null): bool
     {
         $this->es_ausente = true;
         $this->motivo_ausencia_id = $motivoAusenciaId;
         $this->tipo_ausencia = $tipoAusencia;
         $this->descripcion_ausencia = $descripcion;
+        $this->tipo_inasistencia = $tipoInasistencia;
+        $this->permiso_ausencia_id = $permisoAusenciaId;
         $this->registrado_por_user_id = $userId ?? $this->registrado_por_user_id;
 
         return $this->save();
@@ -337,7 +349,9 @@ class OperacionAsistencia extends Model
         $this->es_ausente = false;
         $this->motivo_ausencia_id = null;
         $this->tipo_ausencia = null;
+        $this->tipo_inasistencia = null;
         $this->descripcion_ausencia = null;
+        $this->permiso_ausencia_id = null;
 
         return $this->save();
     }
@@ -376,6 +390,7 @@ class OperacionAsistencia extends Model
             'ausencia' => $this->es_ausente ? [
                 'motivo_id' => $this->motivo_ausencia_id,
                 'tipo' => $this->tipo_ausencia,
+                'tipo_inasistencia' => $this->tipo_inasistencia,
                 'descripcion' => $this->descripcion_ausencia,
             ] : null,
             'procesado_planilla' => $this->procesado_planilla,
