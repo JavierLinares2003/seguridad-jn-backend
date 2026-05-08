@@ -246,6 +246,16 @@ class Personal extends Model
         return $query->where('estado', 'suspendido');
     }
 
+    public function scopeNoContratar($query)
+    {
+        return $query->where('estado', 'no_contratar');
+    }
+
+    public function scopeExtreros($query)
+    {
+        return $query->where('estado', 'extrero');
+    }
+
     public function scopeBuscar($query, ?string $termino)
     {
         if (!$termino) {

@@ -60,7 +60,7 @@ class StorePersonalRequest extends FormRequest
             // Otros
             'observaciones' => ['nullable', 'string'],
             'foto_perfil' => ['nullable', 'string', 'max:255'],
-            'estado' => ['nullable', 'in:activo,inactivo,suspendido'],
+            'estado' => ['nullable', 'in:activo,inactivo,suspendido,no_contratar,extrero'],
 
             // Dirección (opcional)
             'direccion' => ['nullable', 'array'],
@@ -117,7 +117,7 @@ class StorePersonalRequest extends FormRequest
             'alergias.required_if' => 'Debe especificar las alergias si marcó que es alérgico.',
             'salario_base.required' => 'El salario base es obligatorio.',
             'puesto.required' => 'El puesto es obligatorio.',
-            'estado.in' => 'El estado debe ser: activo, inactivo o suspendido.',
+            'estado.in' => 'El estado debe ser: activo, inactivo, suspendido, no_contratar o extrero.',
             'banco.required' => 'El banco es obligatorio para pagos por transferencia o depósito.',
             'tipo_cuenta.required' => 'El tipo de cuenta es obligatorio para pagos por transferencia o depósito.',
             'tipo_cuenta.in' => 'El tipo de cuenta debe ser: Ahorro, Corriente o Monetaria.',
