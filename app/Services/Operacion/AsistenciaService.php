@@ -83,7 +83,7 @@ class AsistenciaService
     /**
      * Obtiene la asistencia de un proyecto en una fecha.
      */
-    public function getAsistenciaPorProyectoYFecha(?int $proyectoId, Carbon $fecha): Collection
+    public function getAsistenciaPorProyectoYFecha(?int $proyectoId, Carbon $fecha, ?string $buscar = null): Collection
     {
         // Obtener todas las asignaciones activas del proyecto para esa fecha
         $asignaciones = OperacionPersonalAsignado::with(['personal', 'turno', 'configuracionPuesto.tipoPersonal'])
@@ -92,7 +92,8 @@ class AsistenciaService
             ->where(function ($q) use ($fecha) {
                 $q->whereNull('fecha_fin')
                   ->orWhere('fecha_fin', '>=', $fecha);
-            });
+            })
+            ->when($buscar, fn ($q) => $q->whereHas('personal', fn ($pq) => $pq->buscar($buscar)));
 
         if ($proyectoId > 0) {
             $asignaciones->where('proyecto_id', $proyectoId);

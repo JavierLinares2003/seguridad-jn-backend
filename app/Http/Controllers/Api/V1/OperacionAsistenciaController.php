@@ -270,20 +270,22 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             return $this->getPersonalSinAsignar(
                 $fechaCarbon,
                 $request->input('per_page', 15),
-                $request->input('departamento_id')
+                $request->input('departamento_id'),
+                $request->input('buscar')
             );
         }
 
-        // CASO 2: Búsqueda de personal específico
-        if ($request->filled('personal_id') || $request->filled('buscar')) {
+        // CASO 2: Búsqueda por ID específico de personal
+        if ($request->filled('personal_id')) {
             return $this->buscarPersonalEnFecha($request, $fechaCarbon);
         }
 
-        // CASO 3: Proyecto específico
+        // CASO 3: Proyecto específico (con filtro de nombre opcional)
         if ($request->filled('proyecto_id')) {
             $asistencia = $this->asistenciaService->getAsistenciaPorProyectoYFecha(
                 (int) $request->input('proyecto_id'),
-                $fechaCarbon
+                $fechaCarbon,
+                $request->input('buscar')
             );
 
             return response()->json([
@@ -298,13 +300,13 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         }
 
         // CASO 4 (Default): Todos los proyectos con su personal, paginado por proyectos
-        return $this->getProyectosConPersonal($fechaCarbon, $request->input('per_page', 10));
+        return $this->getProyectosConPersonal($fechaCarbon, $request->input('per_page', 10), $request->input('buscar'));
     }
 
     /**
      * Retorna proyectos con su personal asignado para una fecha, paginado por proyectos.
      */
-    private function getProyectosConPersonal(Carbon $fecha, int $perPage): JsonResponse
+    private function getProyectosConPersonal(Carbon $fecha, int $perPage, ?string $buscar = null): JsonResponse
     {
         // Obtener IDs de proyectos que tienen asignaciones activas en esta fecha
         $proyectosConAsignaciones = \App\Models\OperacionPersonalAsignado::where('estado_asignacion', 'activa')
@@ -314,6 +316,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                   ->orWhere('fecha_fin', '>=', $fecha);
             })
             ->whereNotNull('proyecto_id')
+            ->when($buscar, fn ($q) => $q->whereHas('personal', fn ($pq) => $pq->buscar($buscar)))
             ->distinct()
             ->pluck('proyecto_id');
 
@@ -352,7 +355,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             ->paginate($perPage);
 
         // Para cada proyecto, obtener su personal con asistencia
-        $proyectosConPersonal = $proyectosPaginados->getCollection()->map(function ($proyecto) use ($fecha) {
+        $proyectosConPersonal = $proyectosPaginados->getCollection()->map(function ($proyecto) use ($fecha, $buscar) {
             $asignaciones = \App\Models\OperacionPersonalAsignado::with([
                 'personal',
                 'turno',
@@ -365,6 +368,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 $q->whereNull('fecha_fin')
                   ->orWhere('fecha_fin', '>=', $fecha);
             })
+            ->when($buscar, fn ($q) => $q->whereHas('personal', fn ($pq) => $pq->buscar($buscar)))
             ->get();
 
             // Obtener asistencias para estas asignaciones
@@ -468,11 +472,16 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
 
         // Filtrar por búsqueda de nombre
         if ($request->filled('buscar')) {
-            $buscar = $request->input('buscar');
-            $query->whereHas('personal', function ($q) use ($buscar) {
-                $q->where('nombres', 'ilike', "%{$buscar}%")
-                  ->orWhere('apellidos', 'ilike', "%{$buscar}%")
-                  ->orWhere('dpi', 'ilike', "%{$buscar}%");
+            $tokens = array_values(array_filter(explode(' ', trim($request->input('buscar')))));
+            $query->whereHas('personal', function ($q) use ($tokens) {
+                foreach ($tokens as $token) {
+                    $like = '%' . $token . '%';
+                    $q->where(function ($inner) use ($like) {
+                        $inner->whereRaw("unaccent(nombres) ilike unaccent(?)", [$like])
+                              ->orWhereRaw("unaccent(apellidos) ilike unaccent(?)", [$like])
+                              ->orWhere('dpi', 'like', $like);
+                    });
+                }
             });
         }
 
@@ -530,7 +539,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
      * - Sin departamento_id: Vista general de todos los departamentos con límite de personal por depto
      * - Con departamento_id: Vista detallada de un departamento con paginación completa
      */
-    private function getPersonalSinAsignar(Carbon $fecha, int $perPage = 15, ?int $departamentoId = null): JsonResponse
+    private function getPersonalSinAsignar(Carbon $fecha, int $perPage = 15, ?int $departamentoId = null, ?string $buscar = null): JsonResponse
     {
         // Personal activo que NO tiene asignación activa en esta fecha
         $personalConAsignacion = \App\Models\OperacionPersonalAsignado::where('estado_asignacion', 'activa')
@@ -543,11 +552,11 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
 
         // CASO 1: Vista detallada de un departamento específico con paginación
         if ($departamentoId !== null) {
-            return $this->getPersonalSinAsignarPorDepartamento($fecha, $departamentoId, $perPage, $personalConAsignacion);
+            return $this->getPersonalSinAsignarPorDepartamento($fecha, $departamentoId, $perPage, $personalConAsignacion, $buscar);
         }
 
         // CASO 2: Vista general de todos los departamentos
-        return $this->getPersonalSinAsignarVistaGeneral($fecha, $personalConAsignacion);
+        return $this->getPersonalSinAsignarVistaGeneral($fecha, $personalConAsignacion, $buscar);
     }
 
     /**
@@ -557,12 +566,14 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         Carbon $fecha,
         int $departamentoId,
         int $perPage,
-        $personalConAsignacion
+        $personalConAsignacion,
+        ?string $buscar = null
     ): JsonResponse {
         $personalQuery = \App\Models\Personal::with(['departamento'])
             ->where('estado', 'activo')
             ->whereNotIn('id', $personalConAsignacion)
-            ->where('departamento_id', $departamentoId);
+            ->where('departamento_id', $departamentoId)
+            ->buscar($buscar);
 
         $totalRegistros = $personalQuery->count();
         $personalPaginado = $personalQuery->paginate($perPage);
@@ -631,14 +642,16 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
      */
     private function getPersonalSinAsignarVistaGeneral(
         Carbon $fecha,
-        $personalConAsignacion
+        $personalConAsignacion,
+        ?string $buscar = null
     ): JsonResponse {
         $limitePorDepartamento = 10;
 
         // Obtener todos los departamentos que tienen personal sin asignar
-        $departamentos = \App\Models\Catalogos\Departamento::whereHas('personal', function ($q) use ($personalConAsignacion) {
+        $departamentos = \App\Models\Catalogos\Departamento::whereHas('personal', function ($q) use ($personalConAsignacion, $buscar) {
             $q->where('estado', 'activo')
-              ->whereNotIn('id', $personalConAsignacion);
+              ->whereNotIn('id', $personalConAsignacion)
+              ->buscar($buscar);
         })->orderBy('nombre')->get();
 
         $resultado = [];
@@ -648,7 +661,8 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             $personalQuery = \App\Models\Personal::with(['departamento'])
                 ->where('estado', 'activo')
                 ->whereNotIn('id', $personalConAsignacion)
-                ->where('departamento_id', $departamento->id);
+                ->where('departamento_id', $departamento->id)
+                ->buscar($buscar);
 
             $totalEnDepartamento = $personalQuery->count();
             $personal = $personalQuery->limit($limitePorDepartamento)->get();
@@ -710,6 +724,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         // Calcular totales generales
         $totalGeneral = \App\Models\Personal::where('estado', 'activo')
             ->whereNotIn('id', $personalConAsignacion)
+            ->buscar($buscar)
             ->count();
 
         return response()->json([
