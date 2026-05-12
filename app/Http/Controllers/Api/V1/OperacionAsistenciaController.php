@@ -453,7 +453,6 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
     private function buscarPersonalEnFecha(Request $request, Carbon $fecha): JsonResponse
     {
         $query = \App\Models\OperacionPersonalAsignado::where('estado_asignacion', 'activa')
-            ->where('fecha_inicio', '<=', $fecha)
             ->where(function ($q) use ($fecha) {
                 $q->whereNull('fecha_fin')
                   ->orWhere('fecha_fin', '>=', $fecha);
@@ -501,7 +500,6 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             ])
             ->where('proyecto_id', $proyecto->id)
             ->where('estado_asignacion', 'activa')
-            ->where('fecha_inicio', '<=', $fecha)
             ->where(function ($q) use ($fecha) {
                 $q->whereNull('fecha_fin')
                   ->orWhere('fecha_fin', '>=', $fecha);
