@@ -448,29 +448,22 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
     }
 
     /**
-     * Busca personal específico por ID o nombre en una fecha.
+     * Busca personal por ID o nombre, retorna TODO el personal del proyecto al que pertenece.
      */
     private function buscarPersonalEnFecha(Request $request, Carbon $fecha): JsonResponse
     {
-        $query = \App\Models\OperacionPersonalAsignado::with([
-            'personal',
-            'proyecto',
-            'turno',
-            'configuracionPuesto.tipoPersonal',
-        ])
-        ->where('estado_asignacion', 'activa')
-        ->where('fecha_inicio', '<=', $fecha)
-        ->where(function ($q) use ($fecha) {
-            $q->whereNull('fecha_fin')
-              ->orWhere('fecha_fin', '>=', $fecha);
-        });
+        $query = \App\Models\OperacionPersonalAsignado::where('estado_asignacion', 'activa')
+            ->where('fecha_inicio', '<=', $fecha)
+            ->where(function ($q) use ($fecha) {
+                $q->whereNull('fecha_fin')
+                  ->orWhere('fecha_fin', '>=', $fecha);
+            })
+            ->whereNotNull('proyecto_id');
 
-        // Filtrar por personal_id
         if ($request->filled('personal_id')) {
             $query->where('personal_id', $request->input('personal_id'));
         }
 
-        // Filtrar por búsqueda de nombre
         if ($request->filled('buscar')) {
             $tokens = array_values(array_filter(explode(' ', trim($request->input('buscar')))));
             $query->whereHas('personal', function ($q) use ($tokens) {
@@ -485,48 +478,103 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             });
         }
 
-        $asignaciones = $query->get();
+        $proyectoIds = $query->pluck('proyecto_id')->unique()->values();
 
-        // Obtener asistencias
-        $asistencias = OperacionAsistencia::with(['personalReemplazo', 'motivoAusencia', 'permisoReposicion'])
-            ->whereIn('personal_asignado_id', $asignaciones->pluck('id'))
-            ->where('fecha_asistencia', $fecha)
-            ->get()
-            ->keyBy('personal_asignado_id');
+        if ($proyectoIds->isEmpty()) {
+            return response()->json([
+                'success' => true,
+                'data' => [],
+                'meta' => [
+                    'fecha' => $fecha->toDateString(),
+                    'total_proyectos' => 0,
+                ],
+            ]);
+        }
 
-        $resultados = $asignaciones->map(function ($asignacion) use ($asistencias) {
-            $asistencia = $asistencias->get($asignacion->id);
+        $proyectos = Proyecto::whereIn('id', $proyectoIds)->orderBy('nombre_proyecto')->get();
+
+        $resultado = $proyectos->map(function ($proyecto) use ($fecha) {
+            $asignaciones = \App\Models\OperacionPersonalAsignado::with([
+                'personal',
+                'turno',
+                'configuracionPuesto.tipoPersonal',
+            ])
+            ->where('proyecto_id', $proyecto->id)
+            ->where('estado_asignacion', 'activa')
+            ->where('fecha_inicio', '<=', $fecha)
+            ->where(function ($q) use ($fecha) {
+                $q->whereNull('fecha_fin')
+                  ->orWhere('fecha_fin', '>=', $fecha);
+            })
+            ->get();
+
+            $asistencias = OperacionAsistencia::with(['personalReemplazo', 'motivoAusencia', 'permisoReposicion'])
+                ->whereIn('personal_asignado_id', $asignaciones->pluck('id'))
+                ->where('fecha_asistencia', $fecha)
+                ->get()
+                ->keyBy('personal_asignado_id');
+
+            $personal = $asignaciones->map(function ($asignacion) use ($asistencias) {
+                $asistencia = $asistencias->get($asignacion->id);
+                return [
+                    'asignacion_id' => $asignacion->id,
+                    'personal'      => $asignacion->personal,
+                    'turno'         => $asignacion->turno,
+                    'puesto'        => $asignacion->configuracionPuesto?->nombre_puesto
+                                        ?? $asignacion->configuracionPuesto?->tipoPersonal?->nombre,
+                    'tipo_personal' => $asignacion->configuracionPuesto?->tipoPersonal?->nombre,
+                    'asistencia'    => $asistencia ? [
+                        'id'                   => $asistencia->id,
+                        'estado'               => $asistencia->estado_dia,
+                        'es_descanso'          => $asistencia->es_descanso,
+                        'es_ausente'           => $asistencia->es_ausente,
+                        'motivo_ausencia'      => $asistencia->motivoAusencia,
+                        'descripcion_ausencia' => $asistencia->descripcion_ausencia,
+                        'tipo_ausencia'        => $asistencia->tipo_ausencia,
+                        'fue_reemplazado'      => $asistencia->fue_reemplazado,
+                        'reemplazo'            => $asistencia->personalReemplazo,
+                        'hizo_reposicion'      => $asistencia->permiso_reposicion_id !== null,
+                        'horas_reposicion'     => $asistencia->horas_reposicion,
+                        'permiso_reposicion'   => $asistencia->permisoReposicion ? [
+                            'id'                => $asistencia->permisoReposicion->id,
+                            'tipo'              => $asistencia->permisoReposicion->tipo,
+                            'descripcion'       => $asistencia->permisoReposicion->descripcion,
+                            'cantidad_aprobada' => $asistencia->permisoReposicion->cantidad_aprobada,
+                            'saldo_pendiente'   => $asistencia->permisoReposicion->saldo_pendiente,
+                        ] : null,
+                        'observaciones'        => $asistencia->observaciones,
+                    ] : ['id' => null, 'estado' => 'sin_registro'],
+                ];
+            });
+
+            $resumen = [
+                'total'                   => $personal->count(),
+                'presentes'               => $personal->where('asistencia.estado', 'presente')->count(),
+                'tardanzas'               => $personal->where('asistencia.estado', 'tarde')->count(),
+                'ausentes_justificados'   => $personal->where('asistencia.estado', 'ausente_justificado')->count(),
+                'ausentes_injustificados' => $personal->where('asistencia.estado', 'ausente_injustificado')->count(),
+                'descansos'               => $personal->where('asistencia.estado', 'descanso')->count(),
+                'sin_registro'            => $personal->where('asistencia.estado', 'sin_registro')->count(),
+            ];
+
             return [
-                'asignacion_id' => $asignacion->id,
-                'personal' => $asignacion->personal,
-                'proyecto' => $asignacion->proyecto,
-                'turno' => $asignacion->turno,
-                'puesto' => $asignacion->configuracionPuesto?->nombre_puesto
-                    ?? $asignacion->configuracionPuesto?->tipoPersonal?->nombre,
-                'asistencia' => $asistencia ? [
-                    'id' => $asistencia->id,
-                    'estado' => $asistencia->estado_dia,
-                    'es_ausente' => $asistencia->es_ausente,
-                    'motivo_ausencia' => $asistencia->motivoAusencia,
-                    'hizo_reposicion' => $asistencia->permiso_reposicion_id !== null,
-                    'horas_reposicion' => $asistencia->horas_reposicion,
-                    'permiso_reposicion' => $asistencia->permisoReposicion ? [
-                        'id'                => $asistencia->permisoReposicion->id,
-                        'tipo'              => $asistencia->permisoReposicion->tipo,
-                        'descripcion'       => $asistencia->permisoReposicion->descripcion,
-                        'cantidad_aprobada' => $asistencia->permisoReposicion->cantidad_aprobada,
-                        'saldo_pendiente'   => $asistencia->permisoReposicion->saldo_pendiente,
-                    ] : null,
-                ] : ['id' => null, 'estado' => 'sin_registro'],
+                'proyecto' => [
+                    'id'              => $proyecto->id,
+                    'nombre'          => $proyecto->nombre_proyecto,
+                    'correlativo'     => $proyecto->correlativo,
+                    'empresa_cliente' => $proyecto->empresa_cliente,
+                ],
+                'personal' => $personal->values(),
+                'resumen'  => $resumen,
             ];
         });
 
         return response()->json([
             'success' => true,
-            'data' => $resultados->values(),
-            'meta' => [
-                'fecha' => $fecha->toDateString(),
-                'total_encontrados' => $resultados->count(),
+            'data'    => $resultado->values(),
+            'meta'    => [
+                'fecha'           => $fecha->toDateString(),
+                'total_proyectos' => $resultado->count(),
             ],
         ]);
     }
