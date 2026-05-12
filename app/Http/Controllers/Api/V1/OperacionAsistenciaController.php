@@ -368,7 +368,6 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 $q->whereNull('fecha_fin')
                   ->orWhere('fecha_fin', '>=', $fecha);
             })
-            ->when($buscar, fn ($q) => $q->whereHas('personal', fn ($pq) => $pq->buscar($buscar)))
             ->get();
 
             // Obtener asistencias para estas asignaciones
