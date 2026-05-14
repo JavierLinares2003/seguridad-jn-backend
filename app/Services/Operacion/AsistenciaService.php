@@ -210,7 +210,7 @@ class AsistenciaService
             ->pluck('personal_id');
 
         return Personal::query()
-            ->activos()
+            ->whereIn('estado', ['activo', 'extrero'])
             ->whereNotIn('id', $personalConAsignacion)
             ->with(['sexo', 'departamento'])
             ->get();

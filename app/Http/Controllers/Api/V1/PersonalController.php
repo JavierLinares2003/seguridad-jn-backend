@@ -56,7 +56,8 @@ class PersonalController extends Controller
                   ->where(function ($inner) {
                       $inner->whereNull('fecha_fin')
                             ->orWhere('fecha_fin', '>=', now());
-                  });
+                  })
+                  ->whereHas('proyecto');
             });
         }
 
