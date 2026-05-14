@@ -303,6 +303,10 @@ class Personal extends Model
             return $query;
         }
 
+        if ($estado === 'activo') {
+            return $query->whereIn('estado', ['activo', 'extrero']);
+        }
+
         return $query->where('estado', $estado);
     }
 

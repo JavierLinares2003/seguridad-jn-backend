@@ -435,7 +435,7 @@ class PersonalController extends Controller
     public function cambiarEstado(Request $request, int $id): JsonResponse
     {
         $request->validate([
-            'estado' => ['required', 'in:activo,inactivo,suspendido'],
+            'estado' => ['required', 'in:activo,inactivo,suspendido,extrero'],
         ]);
 
         $personal = Personal::find($id);
