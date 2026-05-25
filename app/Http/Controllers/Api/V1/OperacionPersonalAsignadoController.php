@@ -27,7 +27,7 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
     {
         return [
             new Middleware('permission:view-operaciones', only: ['index', 'show', 'personalDisponible', 'calendario', 'estadisticas', 'proyectosParaAsignar']),
-            new Middleware('permission:manage-asignaciones', only: ['store', 'update', 'destroy', 'finalizar', 'suspender', 'reactivar']),
+            new Middleware('permission:manage-asignaciones', only: ['store', 'storeExtra', 'update', 'destroy', 'finalizar', 'suspender', 'reactivar']),
         ];
     }
 
@@ -167,6 +167,132 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
             ], 201);
         } catch (\Exception $e) {
             // Capturar errores de los triggers PostgreSQL
+            $mensaje = $this->parsearErrorPostgres($e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => $mensaje,
+            ], 422);
+        }
+    }
+
+    /**
+     * POST /api/v1/operaciones/asignar-extra
+     * Asigna un extrero a un proyecto que ya tiene su personal regular completo.
+     */
+    public function storeExtra(StoreAsignacionRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
+
+        // proyecto_id es obligatorio para asignaciones extra
+        if (empty($validated['proyecto_id'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El proyecto es obligatorio para asignaciones extra.',
+            ], 422);
+        }
+
+        // El personal debe tener estado 'extrero'
+        $personal = Personal::findOrFail($validated['personal_id']);
+        if ($personal->estado !== 'extrero') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo se puede asignar como extra a personal con estado extrero.',
+            ], 422);
+        }
+
+        // Verificar que el proyecto esté activo
+        $proyecto = Proyecto::findOrFail($validated['proyecto_id']);
+        if ($proyecto->estado_proyecto === 'finalizado') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pueden crear asignaciones en un proyecto finalizado.',
+            ], 422);
+        }
+
+        // Verificar que la configuración pertenece al proyecto (si se envía)
+        if (isset($validated['configuracion_puesto_id'])) {
+            $config = ProyectoConfiguracionPersonal::findOrFail($validated['configuracion_puesto_id']);
+            if ($config->proyecto_id != $validated['proyecto_id']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La configuración del puesto no pertenece al proyecto especificado.',
+                ], 422);
+            }
+        }
+
+        // El proyecto debe tener todos sus puestos cubiertos antes de admitir extras
+        $estadisticas = $this->disponibilidadService->getEstadisticasProyecto($validated['proyecto_id']);
+        if ($estadisticas['resumen']['total_faltantes'] > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El proyecto aún tiene puestos sin cubrir. Solo se pueden agregar extras cuando el personal requerido está completo.',
+                'data' => $estadisticas['resumen'],
+            ], 422);
+        }
+
+        // Verificar disponibilidad por fechas (evita dos asignaciones activas simultáneas)
+        $fechaInicio = Carbon::parse($validated['fecha_inicio']);
+        $fechaFin = isset($validated['fecha_fin']) ? Carbon::parse($validated['fecha_fin']) : null;
+
+        if (!$this->disponibilidadService->estaDisponible($validated['personal_id'], $fechaInicio, $fechaFin)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El extrero ya tiene una asignación activa en ese rango de fechas.',
+            ], 422);
+        }
+
+        // Verificar requisitos del puesto si se envía configuracion_puesto_id
+        $requisitos = ['cumple' => true, 'errores' => []];
+        if (isset($validated['configuracion_puesto_id'])) {
+            $requisitos = $this->disponibilidadService->cumpleRequisitos($personal, $validated['configuracion_puesto_id']);
+        }
+
+        $warnings = [];
+
+        if (!$requisitos['cumple']) {
+            if (!$request->input('force_assignment', false)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El extrero no cumple con todos los requisitos del puesto.',
+                    'errores' => $requisitos['errores'],
+                    'detalles' => $requisitos['detalles'] ?? null,
+                    'requiere_confirmacion' => true,
+                ], 200);
+            }
+
+            $validated['requisitos_forzados'] = true;
+            $warnings = $requisitos['errores'];
+        }
+
+        $validated['es_extra'] = true;
+
+        try {
+            $asignacion = DB::transaction(function () use ($validated, $warnings) {
+                $asignacion = OperacionPersonalAsignado::create($validated);
+
+                if (!empty($warnings)) {
+                    $notasAdvertencia = "⚠️ ASIGNADO CON ADVERTENCIAS:\n" . implode("\n", array_map(fn($w) => "- $w", $warnings));
+                    $asignacion->notas = $asignacion->notas
+                        ? $notasAdvertencia . "\n\n" . $asignacion->notas
+                        : $notasAdvertencia;
+                    $asignacion->save();
+                }
+
+                return $asignacion;
+            });
+
+            $asignacion->load(['personal', 'proyecto', 'configuracionPuesto', 'turno']);
+
+            return response()->json([
+                'success' => true,
+                'message' => !empty($warnings)
+                    ? 'Asignación extra creada con advertencias.'
+                    : 'Asignación extra creada correctamente.',
+                'data' => $asignacion,
+                'warnings' => $warnings,
+            ], 201);
+        } catch (\Exception $e) {
             $mensaje = $this->parsearErrorPostgres($e->getMessage());
 
             return response()->json([

@@ -6,6 +6,7 @@ use App\Models\Catalogos\TipoPago;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
 
 class StorePersonalRequest extends FormRequest
 {
@@ -20,7 +21,7 @@ class StorePersonalRequest extends FormRequest
             // Datos personales
             'nombres' => ['required', 'string', 'max:100'],
             'apellidos' => ['required', 'string', 'max:100'],
-            'dpi' => ['required', 'string', 'size:13', 'unique:personal,dpi'],
+            'dpi' => ['required', 'string', 'size:13', Rule::unique('personal', 'dpi')->whereNull('deleted_at')],
             'nit' => ['nullable', 'string', 'max:15', 'unique:personal,nit'],
             'email' => ['nullable', 'email', 'max:150', 'unique:personal,email'],
             'telefono' => ['required', 'string', 'max:15'],

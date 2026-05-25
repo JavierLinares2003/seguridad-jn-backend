@@ -386,6 +386,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/asignar-personal', [OperacionPersonalAsignadoController::class, 'store'])
                 ->name('api.v1.operaciones.asignar-personal');
 
+            Route::post('/asignar-extra', [OperacionPersonalAsignadoController::class, 'storeExtra'])
+                ->name('api.v1.operaciones.asignar-extra');
+
             Route::get('/asignaciones/{id}', [OperacionPersonalAsignadoController::class, 'show'])
                 ->name('api.v1.operaciones.asignaciones.show');
 

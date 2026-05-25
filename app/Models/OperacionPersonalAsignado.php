@@ -31,6 +31,7 @@ class OperacionPersonalAsignado extends Model
         'motivo_suspension',
         'notas',
         'requisitos_forzados',
+        'es_extra',
     ];
 
     protected function casts(): array
@@ -39,6 +40,7 @@ class OperacionPersonalAsignado extends Model
             'fecha_inicio' => 'date',
             'fecha_fin' => 'date',
             'requisitos_forzados' => 'boolean',
+            'es_extra' => 'boolean',
         ];
     }
 
@@ -144,6 +146,16 @@ class OperacionPersonalAsignado extends Model
     public function scopeByPuesto(Builder $query, int $configuracionPuestoId): Builder
     {
         return $query->where('configuracion_puesto_id', $configuracionPuestoId);
+    }
+
+    public function scopeExtras(Builder $query): Builder
+    {
+        return $query->where('es_extra', true);
+    }
+
+    public function scopeNoExtras(Builder $query): Builder
+    {
+        return $query->where('es_extra', false);
     }
 
     /*
