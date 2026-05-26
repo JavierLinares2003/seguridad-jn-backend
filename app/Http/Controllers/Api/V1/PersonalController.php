@@ -45,6 +45,7 @@ class PersonalController extends Controller
                 'departamento:id,nombre',
                 'nivelEstudio:id,nombre',
             ])
+            ->whereIn('estado', ['activo', 'extrero'])
             ->buscar($request->input('buscar'))
             ->byDepartamento($request->input('departamento_id'))
             ->byDepartamentoNombre($request->input('departamento_nombre'))
@@ -457,6 +458,52 @@ class PersonalController extends Controller
             'data' => [
                 'id' => $personal->id,
                 'estado' => $personal->estado,
+            ],
+        ]);
+    }
+
+    public function darBaja(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'estado' => ['required', 'in:suspendido,no_contratar'],
+            'motivo' => ['required', 'string', 'max:500'],
+        ]);
+
+        $personal = Personal::find($id);
+
+        if (!$personal) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Personal no encontrado.',
+                'error'   => 'not_found',
+            ], 404);
+        }
+
+        DB::beginTransaction();
+        try {
+            $personal->update(['estado' => $validated['estado']]);
+
+            $asignaciones = $personal->asignacionesActivas()->get();
+            foreach ($asignaciones as $asignacion) {
+                $asignacion->finalizar($validated['motivo']);
+            }
+
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al dar de baja al personal.',
+            ], 500);
+        }
+
+        return response()->json([
+            'success'                  => true,
+            'message'                  => 'Personal dado de baja correctamente.',
+            'data' => [
+                'id'                       => $personal->id,
+                'estado'                   => $validated['estado'],
+                'asignaciones_finalizadas' => $asignaciones->count(),
             ],
         ]);
     }

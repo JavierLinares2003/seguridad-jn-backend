@@ -232,6 +232,9 @@ Route::prefix('v1')->group(function () {
             Route::patch('/{personal}/estado', [PersonalController::class, 'cambiarEstado'])
                 ->name('api.v1.personal.estado');
 
+            Route::post('/{personal}/dar-baja', [PersonalController::class, 'darBaja'])
+                ->name('api.v1.personal.darBaja');
+
             // Dirección
             Route::get('/{personal}/direccion', [PersonalController::class, 'getDireccion'])
                 ->name('api.v1.personal.direccion.show');
