@@ -275,6 +275,61 @@ class PersonalController extends Controller
     }
 
     /**
+     * Genera el expediente completo en PDF del personal.
+     *
+     * GET /api/v1/personal/{personal}/expediente
+     */
+    public function generarExpediente(int $id)
+    {
+        $personal = Personal::with([
+            'estadoCivil',
+            'tipoSangre',
+            'sexo',
+            'tipoContratacion',
+            'tipoPago',
+            'departamento',
+            'nivelEstudio',
+            'direccion.departamentoGeografico',
+            'direccion.municipio',
+            'familiares.parentesco',
+            'vacaciones',
+            'permisos',
+            'historialSalarios.cambiadoPor',
+            'asignaciones.proyecto',
+            'asignaciones.turno',
+            'asignaciones.configuracionPuesto',
+            'documentos.tipoDocumento',
+        ])->find($id);
+
+        if (!$personal) {
+            abort(404, 'Personal no encontrado.');
+        }
+
+        $modulos = [
+            'info_personal'     => true,
+            'info_laboral'      => true,
+            'direccion'         => true,
+            'salud_alergias'    => true,
+            'familiares'        => true,
+            'proyectos'         => true,
+            'vacaciones'        => true,
+            'permisos'          => true,
+            'historial_salario' => true,
+            'documentos'        => true,
+        ];
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.expediente', [
+            'personal'         => $personal,
+            'modulos'          => $modulos,
+            'fechaGeneracion'  => \Carbon\Carbon::now(),
+        ]);
+
+        $pdf->setPaper('letter', 'portrait');
+
+        return $pdf->download('Expediente-' . \Illuminate\Support\Str::slug($personal->nombres . '-' . $personal->apellidos) . '.pdf');
+    }
+
+    /**
      * Update the specified personal.
      *
      * PUT /api/v1/personal/{id}

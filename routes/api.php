@@ -220,6 +220,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/{personal}/cv', [PersonalController::class, 'generarCV'])
                 ->name('api.v1.personal.cv');
 
+            Route::get('/{personal}/expediente', [PersonalController::class, 'generarExpediente'])
+                ->name('api.v1.personal.expediente');
+
             Route::put('/{personal}', [PersonalController::class, 'update'])
                 ->name('api.v1.personal.update');
 
