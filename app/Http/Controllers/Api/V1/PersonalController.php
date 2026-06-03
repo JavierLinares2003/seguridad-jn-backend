@@ -45,7 +45,6 @@ class PersonalController extends Controller
                 'departamento:id,nombre',
                 'nivelEstudio:id,nombre',
             ])
-            ->whereIn('estado', ['activo', 'extrero'])
             ->buscar($request->input('buscar'))
             ->byDepartamento($request->input('departamento_id'))
             ->byDepartamentoNombre($request->input('departamento_nombre'))
