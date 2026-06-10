@@ -294,7 +294,12 @@ class Personal extends Model
             return $query;
         }
 
-        return $query->whereHas('departamento', fn ($q) => $q->where('nombre', 'ilike', $nombre));
+        return $query->whereHas('departamento', function ($q) use ($nombre) {
+            $q->where('nombre', 'ilike', $nombre);
+            if (strtolower($nombre) === 'seguridad') {
+                $q->orWhere('nombre', 'ilike', 'Operativo');
+            }
+        });
     }
 
     public function scopeByEstado($query, ?string $estado)
