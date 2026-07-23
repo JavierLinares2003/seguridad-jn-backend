@@ -18,6 +18,8 @@ class StoreProyectoRequest extends FormRequest
             'nombre_proyecto' => ['required', 'string', 'max:255'],
             'descripcion' => ['nullable', 'string'],
             'empresa_cliente' => ['required', 'string', 'max:200'],
+            'telefono' => ['nullable', 'string', 'max:20'],
+            'telefono_validado' => ['nullable', 'boolean'],
             'fecha_inicio_estimada' => ['nullable', 'date'],
             'fecha_fin_estimada' => ['nullable', 'date', 'after_or_equal:fecha_inicio_estimada'],
             'fecha_inicio_real' => ['nullable', 'date'],

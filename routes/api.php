@@ -168,6 +168,10 @@ Route::prefix('v1')->group(function () {
         Route::prefix('roles')->group(function () {
             Route::get('/', [RoleController::class, 'index'])
                 ->name('api.v1.roles.index');
+            Route::get('/permissions/menu', [RoleController::class, 'permissions'])
+                ->name('api.v1.roles.permissions.menu');
+            Route::put('/{id}/permissions', [RoleController::class, 'syncPermissions'])
+                ->name('api.v1.roles.sync-permissions');
             Route::get('/{id}', [RoleController::class, 'show'])
                 ->name('api.v1.roles.show');
         });

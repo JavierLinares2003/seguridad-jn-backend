@@ -23,6 +23,8 @@ class Proyecto extends Model
         'nombre_proyecto',
         'descripcion',
         'empresa_cliente',
+        'telefono',
+        'telefono_validado',
         'estado_proyecto',
         'fecha_inicio_estimada',
         'fecha_fin_estimada',
@@ -35,6 +37,7 @@ class Proyecto extends Model
         'fecha_fin_estimada' => 'date',
         'fecha_inicio_real' => 'date',
         'fecha_fin_real' => 'date',
+        'telefono_validado' => 'boolean',
     ];
 
     public function tipoProyecto()
