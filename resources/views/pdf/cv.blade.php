@@ -193,7 +193,7 @@
             @if($personal->peso)
             <div class="info-row">
                 <div class="info-label">Peso:</div>
-                <div class="info-value">{{ $personal->peso }} kg</div>
+                <div class="info-value">{{ $personal->peso }} lb</div>
             </div>
             @endif
             <div class="info-row">

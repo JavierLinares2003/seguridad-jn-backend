@@ -7,6 +7,7 @@ use App\Http\Requests\Operaciones\StorePrestamoRequest;
 use App\Models\Prestamo;
 use App\Services\PrestamoService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class PrestamoController extends Controller
@@ -19,21 +20,21 @@ class PrestamoController extends Controller
         $query = Prestamo::with(['personal', 'aprobadoPor']);
 
         // Filter by personal_id
-        if ($request->has('personal_id')) {
+        if ($request->filled('personal_id')) {
             $query->where('personal_id', $request->personal_id);
         }
 
         // Filter by estado
-        if ($request->has('estado')) {
+        if ($request->filled('estado')) {
             $query->where('estado_prestamo', $request->estado);
         }
 
         // Filter by date range
-        if ($request->has('fecha_desde')) {
+        if ($request->filled('fecha_desde')) {
             $query->whereDate('fecha_prestamo', '>=', $request->fecha_desde);
         }
 
-        if ($request->has('fecha_hasta')) {
+        if ($request->filled('fecha_hasta')) {
             $query->whereDate('fecha_prestamo', '<=', $request->fecha_hasta);
         }
 
@@ -120,6 +121,58 @@ class PrestamoController extends Controller
             'success' => true,
             'message' => 'Préstamo cancelado exitosamente.',
             'data' => $prestamo,
+        ]);
+    }
+
+    /**
+     * Eliminar permanentemente un préstamo (solo admin, confirmación fuerte).
+     * POST /api/v1/operaciones/prestamos/{id}/eliminar
+     * Body: { confirmacion: "ELIMINAR" }
+     *
+     * Borra cuotas/abonos relacionados, comprobantes y el préstamo.
+     */
+    public function eliminar($id, Request $request)
+    {
+        if (!auth()->user()?->hasRole('admin')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo un administrador puede eliminar préstamos.',
+            ], 403);
+        }
+
+        $confirmacion = strtoupper(trim((string) $request->input('confirmacion', '')));
+        if ($confirmacion !== 'ELIMINAR') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Confirmación inválida.',
+                'errors' => ['confirmacion' => ['La confirmación no es válida.']],
+            ], 422);
+        }
+
+        $prestamo = Prestamo::with('transacciones')->findOrFail($id);
+
+        DB::transaction(function () use ($prestamo) {
+            foreach ($prestamo->transacciones as $transaccion) {
+                if ($transaccion->comprobante_ruta
+                    && Storage::disk('operaciones_comprobantes')->exists($transaccion->comprobante_ruta)
+                ) {
+                    Storage::disk('operaciones_comprobantes')->delete($transaccion->comprobante_ruta);
+                }
+                $transaccion->delete();
+            }
+
+            if ($prestamo->comprobante_ruta
+                && Storage::disk('operaciones_comprobantes')->exists($prestamo->comprobante_ruta)
+            ) {
+                Storage::disk('operaciones_comprobantes')->delete($prestamo->comprobante_ruta);
+            }
+
+            $prestamo->delete();
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Préstamo eliminado permanentemente.',
         ]);
     }
 

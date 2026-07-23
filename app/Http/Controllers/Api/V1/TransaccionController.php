@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Operaciones\StoreTransaccionRequest;
 use App\Models\Prestamo;
+use App\Models\ProyectoInventario;
 use App\Models\Transaccion;
 use App\Services\PrestamoService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 class TransaccionController extends Controller
@@ -20,31 +23,31 @@ class TransaccionController extends Controller
         $query = Transaccion::with(['personal', 'prestamo', 'asistencia', 'registradoPor']);
 
         // Filter by personal_id
-        if ($request->has('personal_id')) {
+        if ($request->filled('personal_id')) {
             $query->where('personal_id', $request->personal_id);
         }
 
         // Filter by tipo_transaccion
-        if ($request->has('tipo')) {
+        if ($request->filled('tipo')) {
             $query->where('tipo_transaccion', $request->tipo);
         }
 
         // Filter by estado
-        if ($request->has('estado')) {
+        if ($request->filled('estado')) {
             $query->where('estado_transaccion', $request->estado);
         }
 
         // Filter by date range
-        if ($request->has('fecha_desde')) {
+        if ($request->filled('fecha_desde')) {
             $query->whereDate('fecha_transaccion', '>=', $request->fecha_desde);
         }
 
-        if ($request->has('fecha_hasta')) {
+        if ($request->filled('fecha_hasta')) {
             $query->whereDate('fecha_transaccion', '<=', $request->fecha_hasta);
         }
 
         // Filter by prestamo_id
-        if ($request->has('prestamo_id')) {
+        if ($request->filled('prestamo_id')) {
             $query->where('prestamo_id', $request->prestamo_id);
         }
 
@@ -166,6 +169,119 @@ class TransaccionController extends Controller
             'message' => 'Transacción cancelada exitosamente.',
             'data' => $transaccion,
         ]);
+    }
+
+    /**
+     * Eliminar permanentemente una transacción (solo admin, confirmación fuerte).
+     * POST /api/v1/operaciones/transacciones/{id}/eliminar
+     * Body: { confirmacion: "ELIMINAR" }
+     *
+     * Limpieza asociada:
+     * - comprobante en storage
+     * - ítem de inventario creado desde la transacción
+     * - si era abono aplicado, restablece saldo/cuotas del préstamo
+     */
+    public function eliminar($id, Request $request)
+    {
+        if (!auth()->user()?->hasRole('admin')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo un administrador puede eliminar transacciones.',
+            ], 403);
+        }
+
+        $confirmacion = strtoupper(trim((string) $request->input('confirmacion', '')));
+        if ($confirmacion !== 'ELIMINAR') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Confirmación inválida.',
+                'errors' => ['confirmacion' => ['La confirmación no es válida.']],
+            ], 422);
+        }
+
+        $transaccion = Transaccion::findOrFail($id);
+
+        DB::transaction(function () use ($transaccion) {
+            $this->revertirEfectosAntesDeEliminar($transaccion);
+            $this->eliminarComprobanteArchivo($transaccion);
+            $this->eliminarInventarioVinculado($transaccion);
+            $transaccion->delete();
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Transacción eliminada permanentemente.',
+        ]);
+    }
+
+    /**
+     * Revierte efectos de negocio antes del hard-delete.
+     */
+    private function revertirEfectosAntesDeEliminar(Transaccion $transaccion): void
+    {
+        if (
+            $transaccion->tipo_transaccion !== 'abono_prestamo'
+            || $transaccion->estado_transaccion !== 'aplicado'
+            || !$transaccion->prestamo_id
+        ) {
+            return;
+        }
+
+        $prestamo = Prestamo::lockForUpdate()->find($transaccion->prestamo_id);
+        if (!$prestamo) {
+            return;
+        }
+
+        $nuevoSaldo = min(
+            (float) $prestamo->monto_total,
+            (float) $prestamo->saldo_pendiente + (float) $transaccion->monto
+        );
+
+        $prestamo->update([
+            'saldo_pendiente' => $nuevoSaldo,
+            'cuotas_pagadas' => max(0, (int) $prestamo->cuotas_pagadas - 1),
+            'estado_prestamo' => in_array($prestamo->estado_prestamo, ['pagado', 'cancelado'], true)
+                ? 'activo'
+                : $prestamo->estado_prestamo,
+        ]);
+    }
+
+    private function eliminarComprobanteArchivo(Transaccion $transaccion): void
+    {
+        if (!$transaccion->comprobante_ruta) {
+            return;
+        }
+
+        if (Storage::disk('operaciones_comprobantes')->exists($transaccion->comprobante_ruta)) {
+            Storage::disk('operaciones_comprobantes')->delete($transaccion->comprobante_ruta);
+        }
+    }
+
+    private function eliminarInventarioVinculado(Transaccion $transaccion): void
+    {
+        if (!Schema::hasColumn('operaciones_transacciones', 'proyecto_inventario_id')) {
+            return;
+        }
+
+        if (!$transaccion->proyecto_inventario_id) {
+            return;
+        }
+
+        $item = ProyectoInventario::find($transaccion->proyecto_inventario_id);
+        $transaccion->update(['proyecto_inventario_id' => null]);
+
+        if (!$item) {
+            return;
+        }
+
+        $creadoDesdeEsta = str_contains(
+            (string) $item->observaciones,
+            'Creado desde transacción #' . $transaccion->id
+        );
+
+        if ($creadoDesdeEsta) {
+            $item->delete();
+        }
     }
 
     /**

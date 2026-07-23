@@ -504,6 +504,8 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.operaciones.prestamos.show');
             Route::post('/prestamos/{id}/cancelar', [PrestamoController::class, 'cancelar'])
                 ->name('api.v1.operaciones.prestamos.cancelar');
+            Route::post('/prestamos/{id}/eliminar', [PrestamoController::class, 'eliminar'])
+                ->name('api.v1.operaciones.prestamos.eliminar');
             Route::get('/prestamos/{id}/historial', [PrestamoController::class, 'historial'])
                 ->name('api.v1.operaciones.prestamos.historial');
             Route::get('/prestamos/{id}/resumen', [PrestamoController::class, 'resumen'])
@@ -522,6 +524,8 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.operaciones.transacciones.show');
             Route::post('/transacciones/{id}/cancelar', [TransaccionController::class, 'cancelar'])
                 ->name('api.v1.operaciones.transacciones.cancelar');
+            Route::post('/transacciones/{id}/eliminar', [TransaccionController::class, 'eliminar'])
+                ->name('api.v1.operaciones.transacciones.eliminar');
             Route::post('/transacciones/{id}/aplicar', [TransaccionController::class, 'aplicar'])
                 ->name('api.v1.operaciones.transacciones.aplicar');
             Route::get('/transacciones/{id}/comprobante', [TransaccionController::class, 'comprobante'])
