@@ -31,6 +31,12 @@ class StoreTransaccionRequest extends FormRequest
             // Para abonos a préstamo, el prestamo_id se asigna automáticamente al préstamo activo del personal
             'prestamo_id' => ['nullable', 'exists:operaciones_prestamos,id'],
             'comprobante' => ['nullable', 'file', 'mimes:jpeg,jpg,png,gif,webp,pdf,doc,docx,xls,xlsx', 'max:10240'],
+            // Cuotas de uniforme quincenal
+            'cuotas_totales' => ['nullable', 'integer', 'min:1', 'max:60'],
+            'fecha_inicio' => ['nullable', 'date'],
+            'cuotas' => ['nullable', 'array', 'min:1', 'max:60'],
+            'cuotas.*.fecha_transaccion' => ['required_with:cuotas', 'date'],
+            'cuotas.*.monto' => ['required_with:cuotas', 'numeric', 'min:0.01', 'max:999999.99'],
         ];
     }
 
@@ -47,6 +53,11 @@ class StoreTransaccionRequest extends FormRequest
             'descripcion.required' => 'La descripción es requerida.',
             'descripcion.max' => 'La descripción no puede exceder 1000 caracteres.',
             'prestamo_id.exists' => 'El préstamo seleccionado no existe.',
+            'cuotas_totales.min' => 'Debe haber al menos 1 cuota.',
+            'cuotas_totales.max' => 'El máximo de cuotas es 60.',
+            'cuotas.*.fecha_transaccion.required_with' => 'Cada cuota necesita una fecha.',
+            'cuotas.*.monto.required_with' => 'Cada cuota necesita un monto.',
+            'cuotas.*.monto.min' => 'El monto de cada cuota debe ser mayor a 0.',
         ];
     }
 
@@ -74,6 +85,24 @@ class StoreTransaccionRequest extends FormRequest
                     $validator->errors()->add('monto',
                         'El monto del abono no puede exceder el saldo pendiente del préstamo (Q' .
                         number_format($prestamoActivo->saldo_pendiente, 2) . ').');
+                }
+            }
+
+            // Validar que las cuotas solo apliquen a uniforme
+            if ($this->filled('cuotas') || $this->filled('cuotas_totales')) {
+                if ($this->tipo_transaccion !== 'uniforme') {
+                    $validator->errors()->add('cuotas_totales',
+                        'Las cuotas quincenales solo aplican al tipo Uniforme.');
+                }
+            }
+
+            // Si vienen cuotas explícitas, validar que sumen el monto (con tolerancia de 0.05)
+            if ($this->tipo_transaccion === 'uniforme' && is_array($this->cuotas) && count($this->cuotas) > 0) {
+                $suma = collect($this->cuotas)->sum(fn ($c) => (float) ($c['monto'] ?? 0));
+                if (abs($suma - (float) $this->monto) > 0.05) {
+                    $validator->errors()->add('cuotas',
+                        'La suma de las cuotas (Q' . number_format($suma, 2) .
+                        ') debe coincidir con el monto total (Q' . number_format((float) $this->monto, 2) . ').');
                 }
             }
         });

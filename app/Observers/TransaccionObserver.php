@@ -51,18 +51,30 @@ class TransaccionObserver
                 return;
             }
 
-            // Obtener la fecha de la transacción
-            $fechaTransaccion = $transaccion->fecha_transaccion;
             $personalId = $transaccion->personal_id;
 
             if (!$personalId) {
                 return;
             }
 
-            // Buscar planillas en borrador que incluyan esta fecha
+            $fechas = collect([$transaccion->fecha_transaccion]);
+
+            // Si cambió la fecha, también recalcular el período anterior
+            if ($transaccion->wasChanged('fecha_transaccion')) {
+                $fechas->push($transaccion->getOriginal('fecha_transaccion'));
+            }
+
+            $fechas = $fechas->filter()->unique();
+
             $planillas = Planilla::where('estado_planilla', 'borrador')
-                ->where('periodo_inicio', '<=', $fechaTransaccion)
-                ->where('periodo_fin', '>=', $fechaTransaccion)
+                ->where(function ($q) use ($fechas) {
+                    foreach ($fechas as $fecha) {
+                        $q->orWhere(function ($sub) use ($fecha) {
+                            $sub->where('periodo_inicio', '<=', $fecha)
+                                ->where('periodo_fin', '>=', $fecha);
+                        });
+                    }
+                })
                 ->get();
 
             foreach ($planillas as $planilla) {

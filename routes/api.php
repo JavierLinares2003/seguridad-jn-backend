@@ -524,8 +524,20 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.operaciones.transacciones.index');
             Route::post('/transacciones', [TransaccionController::class, 'store'])
                 ->name('api.v1.operaciones.transacciones.store');
+            Route::get('/transacciones/uniformes', [TransaccionController::class, 'listarUniformes'])
+                ->name('api.v1.operaciones.transacciones.uniformes');
+            Route::get('/transacciones/grupo-uniforme/{grupo}', [TransaccionController::class, 'desgloseGrupoUniforme'])
+                ->name('api.v1.operaciones.transacciones.grupo-uniforme');
+            Route::put('/transacciones/grupo-uniforme/{grupo}/fechas', [TransaccionController::class, 'actualizarFechasGrupo'])
+                ->name('api.v1.operaciones.transacciones.grupo-uniforme.fechas');
+            Route::put('/transacciones/grupo-uniforme/{grupo}/reprogramar', [TransaccionController::class, 'reprogramarGrupoUniforme'])
+                ->name('api.v1.operaciones.transacciones.grupo-uniforme.reprogramar');
+            Route::put('/transacciones/grupo-uniforme/{grupo}/cuotas', [TransaccionController::class, 'cambiarCuotasGrupoUniforme'])
+                ->name('api.v1.operaciones.transacciones.grupo-uniforme.cuotas');
             Route::get('/transacciones/{id}', [TransaccionController::class, 'show'])
                 ->name('api.v1.operaciones.transacciones.show');
+            Route::put('/transacciones/{id}/fecha', [TransaccionController::class, 'actualizarFecha'])
+                ->name('api.v1.operaciones.transacciones.fecha');
             Route::post('/transacciones/{id}/cancelar', [TransaccionController::class, 'cancelar'])
                 ->name('api.v1.operaciones.transacciones.cancelar');
             Route::post('/transacciones/{id}/eliminar', [TransaccionController::class, 'eliminar'])

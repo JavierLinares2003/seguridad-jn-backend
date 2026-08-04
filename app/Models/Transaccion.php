@@ -25,6 +25,11 @@ class Transaccion extends Model
         'es_descuento',
         'estado_transaccion',
         'prestamo_id',
+        'grupo_uniforme',
+        'numero_cuota',
+        'cuotas_totales',
+        'monto_total_uniforme',
+        'saldo_despues',
         'registrado_por_user_id',
         'comprobante_ruta',
         'comprobante_nombre_original',
@@ -37,6 +42,10 @@ class Transaccion extends Model
         'monto' => 'decimal:2',
         'fecha_transaccion' => 'date',
         'es_descuento' => 'boolean',
+        'numero_cuota' => 'integer',
+        'cuotas_totales' => 'integer',
+        'monto_total_uniforme' => 'decimal:2',
+        'saldo_despues' => 'decimal:2',
     ];
 
     // Relationships

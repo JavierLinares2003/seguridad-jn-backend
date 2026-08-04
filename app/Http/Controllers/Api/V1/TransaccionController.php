@@ -8,6 +8,7 @@ use App\Models\Prestamo;
 use App\Models\ProyectoInventario;
 use App\Models\Transaccion;
 use App\Services\PrestamoService;
+use App\Services\UniformeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -65,7 +66,7 @@ class TransaccionController extends Controller
     /**
      * Store a newly created transaction.
      */
-    public function store(StoreTransaccionRequest $request, PrestamoService $prestamoService)
+    public function store(StoreTransaccionRequest $request, PrestamoService $prestamoService, UniformeService $uniformeService)
     {
         $data = $request->validated();
         unset($data['comprobante']);
@@ -116,7 +117,53 @@ class TransaccionController extends Controller
             }
         }
 
+        // Descuento de uniforme con cuotas quincenales
+        $tieneCuotas = $data['tipo_transaccion'] === 'uniforme'
+            && (
+                (isset($data['cuotas']) && is_array($data['cuotas']) && count($data['cuotas']) > 0)
+                || (isset($data['cuotas_totales']) && (int) $data['cuotas_totales'] >= 1)
+            );
+
+        if ($tieneCuotas) {
+            try {
+                $resultado = $uniformeService->crearDescuentoUniforme([
+                    'personal_id' => $data['personal_id'],
+                    'asistencia_id' => $data['asistencia_id'] ?? null,
+                    'monto' => $data['monto'],
+                    'descripcion' => $data['descripcion'],
+                    'fecha_inicio' => $data['fecha_inicio'] ?? $data['fecha_transaccion'] ?? now()->toDateString(),
+                    'fecha_transaccion' => $data['fecha_transaccion'] ?? null,
+                    'cuotas_totales' => (int) ($data['cuotas_totales'] ?? 1),
+                    'cuotas' => $data['cuotas'] ?? null,
+                    'registrado_por_user_id' => $data['registrado_por_user_id'],
+                ]);
+
+                $primera = $resultado['transacciones']->first();
+                if ($primera) {
+                    $this->guardarComprobante($request, $primera, 'transacciones');
+                    $primera->load(['personal', 'prestamo', 'asistencia', 'registradoPor']);
+                }
+
+                $resultado['transacciones']->each->load(['personal', 'prestamo', 'asistencia', 'registradoPor']);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Descuento de uniforme registrado con '
+                        . $resultado['transacciones']->count() . ' cuota(s) quincenal(es).',
+                    'data' => $primera,
+                    'grupo_uniforme' => $resultado['grupo_uniforme'],
+                    'cuotas' => $resultado['transacciones']->values(),
+                ], 201);
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error al registrar el descuento de uniforme: ' . $e->getMessage(),
+                ], 422);
+            }
+        }
+
         // Para otros tipos de transacciones, crear normalmente
+        unset($data['cuotas'], $data['cuotas_totales'], $data['fecha_inicio']);
         $transaccion = Transaccion::create($data);
         $this->guardarComprobante($request, $transaccion, 'transacciones');
 
@@ -128,6 +175,215 @@ class TransaccionController extends Controller
             'message' => 'Transacción creada exitosamente.',
             'data' => $transaccion,
         ], 201);
+    }
+
+    /**
+     * Actualizar fecha de una cuota pendiente de uniforme.
+     * PUT /api/v1/operaciones/transacciones/{id}/fecha
+     */
+    public function actualizarFecha($id, Request $request, UniformeService $uniformeService)
+    {
+        $request->validate([
+            'fecha_transaccion' => ['required', 'date'],
+        ], [
+            'fecha_transaccion.required' => 'La fecha es requerida.',
+            'fecha_transaccion.date' => 'La fecha no es válida.',
+        ]);
+
+        $transaccion = Transaccion::findOrFail($id);
+
+        try {
+            $actualizada = $uniformeService->actualizarFechaCuota(
+                $transaccion,
+                $request->input('fecha_transaccion')
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Fecha de cuota actualizada.',
+                'data' => $actualizada,
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * Desglose de cuotas de un grupo de uniforme.
+     * GET /api/v1/operaciones/transacciones/grupo-uniforme/{grupo}
+     */
+    public function desgloseGrupoUniforme($grupo, UniformeService $uniformeService)
+    {
+        $cuotas = $uniformeService->obtenerDesgloseGrupo($grupo);
+
+        if ($cuotas->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se encontró el grupo de uniforme.',
+            ], 404);
+        }
+
+        $pendiente = $cuotas->where('estado_transaccion', 'pendiente')->sum('monto');
+        $aplicado = $cuotas->where('estado_transaccion', 'aplicado')->sum('monto');
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'grupo_uniforme' => $grupo,
+                'monto_total' => (float) ($cuotas->first()->monto_total_uniforme ?? $cuotas->sum('monto')),
+                'saldo_pendiente' => (float) $pendiente,
+                'monto_aplicado' => (float) $aplicado,
+                'cuotas_totales' => (int) ($cuotas->first()->cuotas_totales ?? $cuotas->count()),
+                'cuotas_aplicadas' => $cuotas->where('estado_transaccion', 'aplicado')->count(),
+                'cuotas_pendientes' => $cuotas->where('estado_transaccion', 'pendiente')->count(),
+                'cuotas' => $cuotas,
+            ],
+        ]);
+    }
+
+    /**
+     * Listar planes de uniforme de un personal.
+     * GET /api/v1/operaciones/transacciones/uniformes?personal_id=
+     */
+    public function listarUniformes(Request $request, UniformeService $uniformeService)
+    {
+        $request->validate([
+            'personal_id' => ['required', 'exists:personal,id'],
+        ]);
+
+        $grupos = $uniformeService->listarGruposPorPersonal((int) $request->personal_id);
+
+        return response()->json([
+            'success' => true,
+            'data' => $grupos,
+        ]);
+    }
+
+    /**
+     * Actualizar fechas de cuotas pendientes (lote).
+     * PUT /api/v1/operaciones/transacciones/grupo-uniforme/{grupo}/fechas
+     */
+    public function actualizarFechasGrupo($grupo, Request $request, UniformeService $uniformeService)
+    {
+        $request->validate([
+            'cuotas' => ['required', 'array', 'min:1'],
+            'cuotas.*.id' => ['required', 'integer', 'exists:operaciones_transacciones,id'],
+            'cuotas.*.fecha_transaccion' => ['required', 'date'],
+        ], [
+            'cuotas.required' => 'Debe enviar las cuotas a actualizar.',
+            'cuotas.*.fecha_transaccion.required' => 'Cada cuota necesita una fecha.',
+        ]);
+
+        try {
+            $actualizadas = $uniformeService->actualizarFechasPendientes(
+                $grupo,
+                $request->input('cuotas')
+            );
+
+            $cuotas = $uniformeService->obtenerDesgloseGrupo($grupo);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Se actualizaron ' . $actualizadas->count() . ' fecha(s) pendiente(s).',
+                'data' => [
+                    'actualizadas' => $actualizadas->count(),
+                    'cuotas' => $cuotas,
+                ],
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * Reprogramar cuotas pendientes desde una fecha (quincenal).
+     * PUT /api/v1/operaciones/transacciones/grupo-uniforme/{grupo}/reprogramar
+     */
+    public function reprogramarGrupoUniforme($grupo, Request $request, UniformeService $uniformeService)
+    {
+        $request->validate([
+            'fecha_inicio' => ['required', 'date'],
+        ], [
+            'fecha_inicio.required' => 'La fecha de inicio es requerida.',
+            'fecha_inicio.date' => 'La fecha de inicio no es válida.',
+        ]);
+
+        try {
+            $actualizadas = $uniformeService->reprogramarFechasPendientes(
+                $grupo,
+                $request->input('fecha_inicio')
+            );
+
+            $cuotas = $uniformeService->obtenerDesgloseGrupo($grupo);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Se reprogramaron ' . $actualizadas->count() . ' cuota(s) pendiente(s).',
+                'data' => [
+                    'actualizadas' => $actualizadas->count(),
+                    'cuotas' => $cuotas,
+                ],
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * Cambiar el número total de cuotas del plan de uniforme.
+     * PUT /api/v1/operaciones/transacciones/grupo-uniforme/{grupo}/cuotas
+     */
+    public function cambiarCuotasGrupoUniforme($grupo, Request $request, UniformeService $uniformeService)
+    {
+        $request->validate([
+            'cuotas_totales' => ['required', 'integer', 'min:1', 'max:60'],
+            'fecha_inicio' => ['nullable', 'date'],
+        ], [
+            'cuotas_totales.required' => 'Indique el nuevo número de cuotas.',
+            'cuotas_totales.min' => 'Debe haber al menos 1 cuota.',
+            'cuotas_totales.max' => 'El máximo de cuotas es 60.',
+        ]);
+
+        try {
+            $cuotas = $uniformeService->cambiarNumeroCuotas(
+                $grupo,
+                (int) $request->input('cuotas_totales'),
+                $request->input('fecha_inicio'),
+                auth()->id()
+            );
+
+            $pendientes = $cuotas->where('estado_transaccion', 'pendiente');
+            $aplicadas = $cuotas->where('estado_transaccion', 'aplicado');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Número de cuotas actualizado. El saldo pendiente se redistribuyó.',
+                'data' => [
+                    'grupo_uniforme' => $grupo,
+                    'monto_total' => (float) ($cuotas->first()->monto_total_uniforme ?? $cuotas->sum('monto')),
+                    'saldo_pendiente' => (float) $pendientes->sum('monto'),
+                    'monto_aplicado' => (float) $aplicadas->sum('monto'),
+                    'cuotas_totales' => (int) ($cuotas->first()->cuotas_totales ?? $cuotas->count()),
+                    'cuotas_aplicadas' => $aplicadas->count(),
+                    'cuotas_pendientes' => $pendientes->count(),
+                    'cuotas' => $cuotas,
+                ],
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
     }
 
     /**
