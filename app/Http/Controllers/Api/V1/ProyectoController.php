@@ -8,6 +8,7 @@ use App\Http\Requests\UpdateProyectoRequest;
 use App\Models\OperacionPersonalAsignado;
 use App\Models\Proyecto;
 use App\Models\ProyectoConfiguracionPersonal;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
@@ -109,23 +110,57 @@ class ProyectoController extends Controller implements HasMiddleware
 
     public function store(StoreProyectoRequest $request): JsonResponse
     {
-        $proyecto = DB::transaction(function () use ($request) {
-            $proyecto = Proyecto::create($request->validated());
+        try {
+            $proyecto = DB::transaction(function () use ($request) {
+                $data = collect($request->validated())
+                    ->only([
+                        'tipo_proyecto_id',
+                        'nombre_proyecto',
+                        'descripcion',
+                        'empresa_cliente',
+                        'telefono',
+                        'telefono_validado',
+                        'estado_proyecto',
+                        'fecha_inicio_estimada',
+                        'fecha_fin_estimada',
+                        'fecha_inicio_real',
+                        'fecha_fin_real',
+                    ])
+                    ->all();
 
-            if ($request->has('ubicacion')) {
-                $proyecto->ubicacion()->create($request->input('ubicacion'));
+                // Evitar string vacío en teléfono
+                if (array_key_exists('telefono', $data) && ($data['telefono'] === '' || $data['telefono'] === null)) {
+                    $data['telefono'] = null;
+                }
+
+                $proyecto = Proyecto::create($data);
+
+                if ($request->has('ubicacion')) {
+                    $proyecto->ubicacion()->create($request->input('ubicacion'));
+                }
+
+                if ($request->has('facturacion')) {
+                    $facturacionData = $request->input('facturacion');
+                    $facturacionData['monto_proyecto_total'] = 0;
+                    $facturacion = $proyecto->facturacion()->create($facturacionData);
+                    $facturacion->recalcularImpuesto();
+                }
+
+                return $proyecto;
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            if (str_contains($e->getMessage(), 'proyectos_correlativo_unique')) {
+                return response()->json([
+                    'message' => 'No se pudo generar el correlativo del proyecto. Intente de nuevo.',
+                    'errors' => [
+                        'correlativo' => ['Conflicto de correlativo. Vuelva a intentar crear el proyecto.'],
+                    ],
+                ], 422);
             }
 
-            if ($request->has('facturacion')) {
-                $facturacionData = $request->input('facturacion');
-                $facturacionData['monto_proyecto_total'] = 0;
-                $facturacion = $proyecto->facturacion()->create($facturacionData);
-                $facturacion->recalcularImpuesto();
-            }
+            throw $e;
+        }
 
-            return $proyecto;
-        });
-        
         $proyecto->refresh();
         $proyecto->load([
             'tipoProyecto',
@@ -134,7 +169,7 @@ class ProyectoController extends Controller implements HasMiddleware
             'facturacion.tipoDocumentoFacturacion',
             'facturacion.periodicidadPago'
         ]);
-        
+
         return response()->json([
             'message' => 'Proyecto creado exitosamente',
             'data' => $proyecto
@@ -162,7 +197,27 @@ class ProyectoController extends Controller implements HasMiddleware
     public function update(UpdateProyectoRequest $request, Proyecto $proyecto): JsonResponse
     {
         DB::transaction(function () use ($request, $proyecto) {
-            $proyecto->update($request->validated());
+            $data = collect($request->validated())
+                ->only([
+                    'tipo_proyecto_id',
+                    'nombre_proyecto',
+                    'descripcion',
+                    'empresa_cliente',
+                    'telefono',
+                    'telefono_validado',
+                    'estado_proyecto',
+                    'fecha_inicio_estimada',
+                    'fecha_fin_estimada',
+                    'fecha_inicio_real',
+                    'fecha_fin_real',
+                ])
+                ->all();
+
+            if (array_key_exists('telefono', $data) && ($data['telefono'] === '' || $data['telefono'] === null)) {
+                $data['telefono'] = null;
+            }
+
+            $proyecto->update($data);
 
             if ($request->has('ubicacion')) {
                 $proyecto->ubicacion()->updateOrCreate(
