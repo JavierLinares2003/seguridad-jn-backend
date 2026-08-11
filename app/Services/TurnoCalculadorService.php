@@ -107,14 +107,33 @@ class TurnoCalculadorService
     public function generarCalendario(int $turnoId, Carbon $fechaInicio, Carbon $rangoInicio, Carbon $rangoFin): Collection
     {
         $calendario = collect();
-        $fechaActual = $rangoInicio->copy();
+        $fechaActual = $rangoInicio->copy()->startOfDay();
+        $inicioAsignacion = $fechaInicio->copy()->startOfDay();
 
         while ($fechaActual->lte($rangoFin)) {
-            $tipoDia = $this->obtenerTipoDia($turnoId, $fechaInicio, $fechaActual);
+            // Antes de la fecha de inicio de asignación: no laboró aún
+            if ($fechaActual->lt($inicioAsignacion)) {
+                $calendario->push([
+                    'fecha' => $fechaActual->format('Y-m-d'),
+                    'dia_semana' => $fechaActual->locale('es')->dayName,
+                    'es_trabajo' => false,
+                    'dia_ciclo' => null,
+                    'tipo' => 'sin_asignacion',
+                    'turno_nombre' => null,
+                    'registrado' => false,
+                    'origen' => 'fuera_asignacion',
+                ]);
+                $fechaActual->addDay();
+                continue;
+            }
+
+            $tipoDia = $this->obtenerTipoDia($turnoId, $inicioAsignacion, $fechaActual);
             $calendario->push([
                 'fecha' => $fechaActual->format('Y-m-d'),
                 'dia_semana' => $fechaActual->locale('es')->dayName,
                 ...$tipoDia,
+                'registrado' => false,
+                'origen' => 'turno',
             ]);
             $fechaActual->addDay();
         }

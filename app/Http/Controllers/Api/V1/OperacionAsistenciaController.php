@@ -1238,12 +1238,52 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             ], 422);
         }
 
+        $fechaInicioAsignacion = Carbon::parse($asignacion->fecha_inicio)->startOfDay();
+
         $calendario = $this->turnoCalculadorService->generarCalendario(
             $asignacion->turno_id,
-            Carbon::parse($asignacion->fecha_inicio),
+            $fechaInicioAsignacion,
             $fechaInicio,
             $fechaFin
         );
+
+        // Prioridad: lo que el encargado marcó en asistencia (falta, descanso, presente…)
+        $asistencias = OperacionAsistencia::query()
+            ->where('personal_asignado_id', $asignacion->id)
+            ->whereBetween('fecha_asistencia', [
+                $fechaInicio->toDateString(),
+                $fechaFin->toDateString(),
+            ])
+            ->get()
+            ->keyBy(fn (OperacionAsistencia $a) => $a->fecha_asistencia->format('Y-m-d'));
+
+        $calendario = $calendario->map(function (array $dia) use ($asistencias) {
+            /** @var OperacionAsistencia|null $asistencia */
+            $asistencia = $asistencias->get($dia['fecha']);
+
+            if (!$asistencia) {
+                return $dia;
+            }
+
+            $estado = $asistencia->estado_dia;
+            $tipo = match ($estado) {
+                'descanso' => 'descanso',
+                'reemplazado' => 'reemplazado',
+                'ausente_justificado', 'ausente_injustificado', 'ausente_con_permiso' => 'falta',
+                default => 'trabajo',
+            };
+
+            return [
+                ...$dia,
+                'es_trabajo' => $tipo === 'trabajo' || $tipo === 'reemplazado',
+                'tipo' => $tipo,
+                'estado_asistencia' => $estado,
+                'registrado' => true,
+                'origen' => 'asistencia',
+                'es_ausente' => (bool) $asistencia->es_ausente,
+                'es_descanso' => (bool) $asistencia->es_descanso,
+            ];
+        });
 
         return response()->json([
             'success' => true,
@@ -1258,7 +1298,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 ],
                 'turno' => $asignacion->turno,
                 'fecha_inicio_asignacion' => $asignacion->fecha_inicio,
-                'calendario' => $calendario,
+                'calendario' => $calendario->values(),
             ],
         ]);
     }
