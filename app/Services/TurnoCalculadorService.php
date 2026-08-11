@@ -104,15 +104,16 @@ class TurnoCalculadorService
      * @param Carbon $rangoFin Fin del rango a generar
      * @return Collection
      */
-    public function generarCalendario(int $turnoId, Carbon $fechaInicio, Carbon $rangoInicio, Carbon $rangoFin): Collection
+    public function generarCalendario(int $turnoId, Carbon $fechaInicio, Carbon $rangoInicio, Carbon $rangoFin, ?Carbon $fechaFinAsignacion = null): Collection
     {
         $calendario = collect();
         $fechaActual = $rangoInicio->copy()->startOfDay();
         $inicioAsignacion = $fechaInicio->copy()->startOfDay();
+        $finAsignacion = $fechaFinAsignacion?->copy()->startOfDay();
 
         while ($fechaActual->lte($rangoFin)) {
-            // Antes de la fecha de inicio de asignación: no laboró aún
-            if ($fechaActual->lt($inicioAsignacion)) {
+            // Fuera del periodo de asignación
+            if ($fechaActual->lt($inicioAsignacion) || ($finAsignacion && $fechaActual->gt($finAsignacion))) {
                 $calendario->push([
                     'fecha' => $fechaActual->format('Y-m-d'),
                     'dia_semana' => $fechaActual->locale('es')->dayName,
@@ -127,13 +128,18 @@ class TurnoCalculadorService
                 continue;
             }
 
+            // Dentro de la asignación pero sin marca: no inventar trabajo/descanso
             $tipoDia = $this->obtenerTipoDia($turnoId, $inicioAsignacion, $fechaActual);
             $calendario->push([
                 'fecha' => $fechaActual->format('Y-m-d'),
                 'dia_semana' => $fechaActual->locale('es')->dayName,
                 ...$tipoDia,
+                // El patrón teórico queda como referencia; la UI prioriza "sin_marcar"
+                'tipo_previsto' => $tipoDia['tipo'] ?? null,
+                'tipo' => 'sin_marcar',
+                'es_trabajo' => false,
                 'registrado' => false,
-                'origen' => 'turno',
+                'origen' => 'pendiente',
             ]);
             $fechaActual->addDay();
         }

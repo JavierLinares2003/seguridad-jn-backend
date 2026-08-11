@@ -1239,12 +1239,16 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         }
 
         $fechaInicioAsignacion = Carbon::parse($asignacion->fecha_inicio)->startOfDay();
+        $fechaFinAsignacion = $asignacion->fecha_fin
+            ? Carbon::parse($asignacion->fecha_fin)->startOfDay()
+            : null;
 
         $calendario = $this->turnoCalculadorService->generarCalendario(
             $asignacion->turno_id,
             $fechaInicioAsignacion,
             $fechaInicio,
-            $fechaFin
+            $fechaFin,
+            $fechaFinAsignacion
         );
 
         // Prioridad: lo que el encargado marcó en asistencia (falta, descanso, presente…)
