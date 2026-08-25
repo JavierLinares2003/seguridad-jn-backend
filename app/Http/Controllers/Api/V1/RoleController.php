@@ -22,6 +22,7 @@ class RoleController extends Controller implements HasMiddleware
         'view-proyectos' => 'Proyectos',
         'view-operaciones' => 'Operaciones / Asistencia',
         'view-planillas' => 'Planillas',
+        'view-bodega' => 'Bodega / Inventario',
         'view-users' => 'Usuarios',
         'manage-roles' => 'Roles y vistas',
         'view-bitacora' => 'Bitácora',
@@ -31,7 +32,7 @@ class RoleController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:manage-roles', only: ['index', 'show', 'permissions', 'syncPermissions']),
+            new Middleware('permission:manage-roles', only: ['index', 'show', 'permissions', 'syncPermissions', 'store', 'destroy']),
         ];
     }
 
@@ -154,17 +155,7 @@ class RoleController extends Controller implements HasMiddleware
             ], 422);
         }
 
-        $menuPerms = array_keys(self::MENU_PERMISSIONS);
-        $current = $role->permissions->pluck('name')->all();
-        $nonMenu = array_values(array_diff($current, $menuPerms));
-        $selectedMenu = $validator->validated()['vistas'];
-
-        // Ensure permissions exist
-        foreach ($selectedMenu as $permName) {
-            Permission::findOrCreate($permName, 'web');
-        }
-
-        $role->syncPermissions(array_values(array_unique(array_merge($nonMenu, $selectedMenu))));
+        $this->applyVistas($role, $validator->validated()['vistas']);
 
         $role->load('permissions');
         $permissionNames = $role->permissions->pluck('name');
@@ -182,5 +173,148 @@ class RoleController extends Controller implements HasMiddleware
                     ->values(),
             ],
         ]);
+    }
+
+    /**
+     * Create a new role with optional menu views.
+     *
+     * POST /api/v1/roles
+     * Body: { name: "bodega", vistas: ["view-bodega"] }
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => ['required', 'string', 'min:3', 'max:50', 'regex:/^[\pL\pN]+([\pL\pN\s\-]*[\pL\pN])?$/u'],
+            'vistas' => ['nullable', 'array'],
+            'vistas.*' => ['string', 'in:' . implode(',', array_keys(self::MENU_PERMISSIONS))],
+        ], [
+            'name.required' => 'El nombre del rol es obligatorio.',
+            'name.min' => 'El nombre del rol debe tener al menos 3 caracteres.',
+            'name.max' => 'El nombre del rol no puede superar 50 caracteres.',
+            'name.regex' => 'Usa solo letras, números, espacios o guiones.',
+            'vistas.*.in' => 'Una o más vistas no son válidas.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error de validación.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $name = mb_strtolower(trim(preg_replace('/\s+/', ' ', $validator->validated()['name'])));
+
+        if ($name === 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'El rol admin ya existe y no se puede duplicar.',
+            ], 422);
+        }
+
+        if (Role::where('name', $name)->where('guard_name', 'web')->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Ya existe un rol con ese nombre.',
+            ], 422);
+        }
+
+        $role = Role::create([
+            'name' => $name,
+            'guard_name' => 'web',
+        ]);
+
+        $this->applyVistas($role, $validator->validated()['vistas'] ?? []);
+        $role->load('permissions');
+        $permissionNames = $role->permissions->pluck('name');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Rol creado correctamente.',
+            'data' => [
+                'id' => $role->id,
+                'name' => $role->name,
+                'permissions_count' => $permissionNames->count(),
+                'users_count' => 0,
+                'permissions' => $permissionNames,
+                'vistas' => collect(self::MENU_PERMISSIONS)
+                    ->filter(fn ($label, $perm) => $permissionNames->contains($perm))
+                    ->values()
+                    ->all(),
+            ],
+        ], 201);
+    }
+
+    /**
+     * Delete a role that is not in use.
+     *
+     * DELETE /api/v1/roles/{id}
+     */
+    public function destroy(int $id): JsonResponse
+    {
+        $role = Role::find($id);
+
+        if (!$role) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Rol no encontrado.',
+            ], 404);
+        }
+
+        if ($role->name === 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'El rol admin no se puede eliminar.',
+            ], 422);
+        }
+
+        $usersCount = User::role($role->name)->count();
+        if ($usersCount > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => "No se puede eliminar: hay {$usersCount} usuario(s) con este rol. Cámbiales el rol primero.",
+            ], 422);
+        }
+
+        $role->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Rol eliminado correctamente.',
+        ]);
+    }
+
+    /**
+     * Assign menu views to a role, keeping unrelated permissions.
+     */
+    private function applyVistas(Role $role, array $selectedMenu): void
+    {
+        $menuPerms = array_keys(self::MENU_PERMISSIONS);
+        $role->loadMissing('permissions');
+        $current = $role->permissions->pluck('name')->all();
+        $nonMenu = array_values(array_diff($current, $menuPerms));
+
+        $relatedByView = [
+            'view-bodega' => ['manage-bodega'],
+            'view-proyectos' => ['create-proyectos', 'edit-proyectos'],
+        ];
+        $allRelated = [];
+        foreach ($relatedByView as $actions) {
+            $allRelated = array_merge($allRelated, $actions);
+        }
+        $nonMenu = array_values(array_diff($nonMenu, array_values(array_unique($allRelated))));
+
+        $extra = [];
+        foreach ($selectedMenu as $vista) {
+            if (isset($relatedByView[$vista])) {
+                $extra = array_merge($extra, $relatedByView[$vista]);
+            }
+        }
+
+        foreach (array_merge($selectedMenu, $extra) as $permName) {
+            Permission::findOrCreate($permName, 'web');
+        }
+
+        $role->syncPermissions(array_values(array_unique(array_merge($nonMenu, $selectedMenu, $extra))));
     }
 }
