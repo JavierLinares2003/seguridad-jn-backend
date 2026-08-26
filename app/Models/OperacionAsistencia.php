@@ -28,6 +28,7 @@ class OperacionAsistencia extends Model
         'llego_tarde',
         'minutos_retraso',
         'es_descanso',
+        'es_extra',
         'fue_reemplazado',
         'personal_reemplazo_id',
         'motivo_reemplazo',
@@ -57,6 +58,7 @@ class OperacionAsistencia extends Model
             'llego_tarde' => 'boolean',
             'minutos_retraso' => 'integer',
             'es_descanso' => 'boolean',
+            'es_extra' => 'boolean',
             'fue_reemplazado' => 'boolean',
             'es_ausente' => 'boolean',
             'procesado_planilla' => 'boolean',
@@ -109,6 +111,10 @@ class OperacionAsistencia extends Model
                         return 'ausente_con_permiso';
                     }
                     return $this->tipo_ausencia === 'justificada' ? 'ausente_justificado' : 'ausente_injustificado';
+                }
+
+                if ($this->es_extra) {
+                    return 'extra';
                 }
 
                 return 'presente';
@@ -198,8 +204,11 @@ class OperacionAsistencia extends Model
 
     public function scopePorPersonal(Builder $query, int $personalId): Builder
     {
-        return $query->whereHas('asignacion', function ($q) use ($personalId) {
-            $q->where('personal_id', $personalId);
+        return $query->where(function (Builder $q) use ($personalId) {
+            $q->where('personal_id', $personalId)
+                ->orWhereHas('asignacion', function ($asignacion) use ($personalId) {
+                    $asignacion->where('personal_id', $personalId);
+                });
         });
     }
 

@@ -30,7 +30,8 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         return [
             new Middleware('permission:view-operaciones', only: [
                 'index', 'show', 'porFecha', 'porProyecto', 'resumen', 'historialPersonal',
-                'reemplazosDisponibles', 'vistaAgrupada', 'motivosAusencia', 'calendarioTurno'
+                'reemplazosDisponibles', 'vistaAgrupada', 'motivosAusencia', 'calendarioTurno',
+                'calendarioPersonal',
             ]),
             new Middleware('permission:manage-asistencia', only: [
                 'store', 'update', 'destroy', 'generarDescansos', 'marcarAusencia', 'permisosDisponibles'
@@ -309,7 +310,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
     private function getProyectosConPersonal(Carbon $fecha, int $perPage, ?string $buscar = null): JsonResponse
     {
         // Obtener IDs de proyectos que tienen asignaciones activas en esta fecha
-        $proyectosConAsignaciones = \App\Models\OperacionPersonalAsignado::where('estado_asignacion', 'activa')
+        $proyectosConAsignaciones = \App\Models\OperacionPersonalAsignado::whereIn('estado_asignacion', ['activa', 'finalizada'])
             ->where('fecha_inicio', '<=', $fecha)
             ->where(function ($q) use ($fecha) {
                 $q->whereNull('fecha_fin')
@@ -362,7 +363,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 'configuracionPuesto.tipoPersonal',
             ])
             ->where('proyecto_id', $proyecto->id)
-            ->where('estado_asignacion', 'activa')
+            ->whereIn('estado_asignacion', ['activa', 'finalizada'])
             ->where('fecha_inicio', '<=', $fecha)
             ->where(function ($q) use ($fecha) {
                 $q->whereNull('fecha_fin')
@@ -391,6 +392,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                         'id' => $asistencia->id,
                         'estado' => $asistencia->estado_dia,
                         'es_descanso' => $asistencia->es_descanso,
+                        'es_extra' => $asistencia->es_extra,
                         'es_ausente' => $asistencia->es_ausente,
                         'motivo_ausencia' => $asistencia->motivoAusencia,
                         'descripcion_ausencia' => $asistencia->descripcion_ausencia,
@@ -428,6 +430,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                     'nombre' => $proyecto->nombre_proyecto,
                     'correlativo' => $proyecto->correlativo,
                     'empresa_cliente' => $proyecto->empresa_cliente,
+                    'telefono' => $proyecto->telefono,
                 ],
                 'personal' => $personal->values(),
                 'resumen' => $resumen,
@@ -451,7 +454,8 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
      */
     private function buscarPersonalEnFecha(Request $request, Carbon $fecha): JsonResponse
     {
-        $query = \App\Models\OperacionPersonalAsignado::where('estado_asignacion', 'activa')
+        $query = \App\Models\OperacionPersonalAsignado::whereIn('estado_asignacion', ['activa', 'finalizada'])
+            ->where('fecha_inicio', '<=', $fecha)
             ->where(function ($q) use ($fecha) {
                 $q->whereNull('fecha_fin')
                   ->orWhere('fecha_fin', '>=', $fecha);
@@ -498,7 +502,8 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 'configuracionPuesto.tipoPersonal',
             ])
             ->where('proyecto_id', $proyecto->id)
-            ->where('estado_asignacion', 'activa')
+            ->whereIn('estado_asignacion', ['activa', 'finalizada'])
+            ->where('fecha_inicio', '<=', $fecha)
             ->where(function ($q) use ($fecha) {
                 $q->whereNull('fecha_fin')
                   ->orWhere('fecha_fin', '>=', $fecha);
@@ -524,6 +529,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                         'id'                   => $asistencia->id,
                         'estado'               => $asistencia->estado_dia,
                         'es_descanso'          => $asistencia->es_descanso,
+                        'es_extra'             => $asistencia->es_extra,
                         'es_ausente'           => $asistencia->es_ausente,
                         'motivo_ausencia'      => $asistencia->motivoAusencia,
                         'descripcion_ausencia' => $asistencia->descripcion_ausencia,
@@ -560,6 +566,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                     'nombre'          => $proyecto->nombre_proyecto,
                     'correlativo'     => $proyecto->correlativo,
                     'empresa_cliente' => $proyecto->empresa_cliente,
+                    'telefono'        => $proyecto->telefono,
                 ],
                 'personal' => $personal->values(),
                 'resumen'  => $resumen,
@@ -587,7 +594,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
     private function getPersonalSinAsignar(Carbon $fecha, int $perPage = 15, ?int $departamentoId = null, ?string $buscar = null): JsonResponse
     {
         // Personal activo que NO tiene asignación activa en esta fecha
-        $personalConAsignacion = \App\Models\OperacionPersonalAsignado::where('estado_asignacion', 'activa')
+        $personalConAsignacion = \App\Models\OperacionPersonalAsignado::whereIn('estado_asignacion', ['activa', 'finalizada'])
             ->where('fecha_inicio', '<=', $fecha)
             ->where(function ($q) use ($fecha) {
                 $q->whereNull('fecha_fin')
@@ -649,6 +656,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                     'hora_salida' => $asistencia->hora_salida?->format('H:i'),
                     'estado' => $asistencia->estado_dia,
                     'es_descanso' => $asistencia->es_descanso,
+                    'es_extra' => $asistencia->es_extra,
                     'es_ausente' => $asistencia->es_ausente,
                     'motivo_ausencia' => $asistencia->motivoAusencia,
                     'observaciones' => $asistencia->observaciones,
@@ -734,6 +742,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                         'hora_salida' => $asistencia->hora_salida?->format('H:i'),
                         'estado' => $asistencia->estado_dia,
                         'es_descanso' => $asistencia->es_descanso,
+                        'es_extra' => $asistencia->es_extra,
                         'es_ausente' => $asistencia->es_ausente,
                         'motivo_ausencia' => $asistencia->motivoAusencia,
                         'hizo_reposicion' => $asistencia->permiso_reposicion_id !== null,
@@ -759,6 +768,69 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 'total_en_departamento' => $totalEnDepartamento,
                 'mostrando' => $personal->count(),
                 'hay_mas' => $totalEnDepartamento > $limitePorDepartamento,
+                'resumen' => [
+                    'con_asistencia' => $asistenciasDirectas->count(),
+                    'sin_registro' => $personal->count() - $asistenciasDirectas->count(),
+                ],
+            ];
+        }
+
+        $sinDeptoQuery = \App\Models\Personal::query()
+            ->where('estado', 'activo')
+            ->whereNotIn('id', $personalConAsignacion)
+            ->whereNull('departamento_id')
+            ->buscar($buscar);
+
+        $totalSinDepto = $sinDeptoQuery->count();
+        if ($totalSinDepto > 0) {
+            $personal = (clone $sinDeptoQuery)->limit($limitePorDepartamento)->get();
+            $asistenciasDirectas = OperacionAsistencia::whereNull('personal_asignado_id')
+                ->whereIn('personal_id', $personal->pluck('id'))
+                ->where('fecha_asistencia', $fecha)
+                ->with(['motivoAusencia', 'permisoReposicion'])
+                ->get()
+                ->keyBy('personal_id');
+
+            $personalData = $personal->map(function ($p) use ($asistenciasDirectas) {
+                $asistencia = $asistenciasDirectas->get($p->id);
+                return [
+                    'id' => $p->id,
+                    'codigo' => $p->codigo,
+                    'nombre_completo' => $p->nombre_completo,
+                    'dpi' => $p->dpi,
+                    'telefono' => $p->telefono,
+                    'asistencia' => $asistencia ? [
+                        'id' => $asistencia->id,
+                        'hora_entrada' => $asistencia->hora_entrada?->format('H:i'),
+                        'hora_salida' => $asistencia->hora_salida?->format('H:i'),
+                        'estado' => $asistencia->estado_dia,
+                        'es_descanso' => $asistencia->es_descanso,
+                        'es_extra' => $asistencia->es_extra,
+                        'es_ausente' => $asistencia->es_ausente,
+                        'motivo_ausencia' => $asistencia->motivoAusencia,
+                        'hizo_reposicion' => $asistencia->permiso_reposicion_id !== null,
+                        'horas_reposicion' => $asistencia->horas_reposicion,
+                        'permiso_reposicion' => $asistencia->permisoReposicion ? [
+                            'id'                => $asistencia->permisoReposicion->id,
+                            'tipo'              => $asistencia->permisoReposicion->tipo,
+                            'descripcion'       => $asistencia->permisoReposicion->descripcion,
+                            'cantidad_aprobada' => $asistencia->permisoReposicion->cantidad_aprobada,
+                            'saldo_pendiente'   => $asistencia->permisoReposicion->saldo_pendiente,
+                        ] : null,
+                        'observaciones' => $asistencia->observaciones,
+                    ] : ['id' => null, 'estado' => 'sin_registro'],
+                ];
+            })->values();
+
+            $resultado[] = [
+                'departamento' => [
+                    'id' => null,
+                    'nombre' => 'Sin Departamento',
+                ],
+                'personal' => $personalData,
+                'total_en_departamento' => $totalSinDepto,
+                'mostrando' => $personal->count(),
+                'hay_mas' => $totalSinDepto > $limitePorDepartamento,
                 'resumen' => [
                     'con_asistencia' => $asistenciasDirectas->count(),
                     'sin_registro' => $personal->count() - $asistenciasDirectas->count(),
@@ -801,7 +873,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         }
 
         // Personal activo que NO tiene asignación activa en esta fecha
-        $personalConAsignacion = \App\Models\OperacionPersonalAsignado::where('estado_asignacion', 'activa')
+        $personalConAsignacion = \App\Models\OperacionPersonalAsignado::whereIn('estado_asignacion', ['activa', 'finalizada'])
             ->where('fecha_inicio', '<=', $fechaCarbon)
             ->where(function ($q) use ($fechaCarbon) {
                 $q->whereNull('fecha_fin')
@@ -1172,6 +1244,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                     'id' => $proyectoId,
                     'nombre' => $proyecto?->nombre_proyecto ?? 'Sin proyecto',
                     'correlativo' => $proyecto?->correlativo ?? '',
+                    'telefono' => $proyecto?->telefono,
                     'total' => $grupo->count(),
                     'presentes' => $grupo->where('estado_dia', 'presente')->count(),
                     'tardanzas' => $grupo->where('estado_dia', 'tarde')->count(),
@@ -1251,43 +1324,13 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             $fechaFinAsignacion
         );
 
-        // Prioridad: lo que el encargado marcó en asistencia (falta, descanso, presente…)
-        $asistencias = OperacionAsistencia::query()
-            ->where('personal_asignado_id', $asignacion->id)
-            ->whereBetween('fecha_asistencia', [
-                $fechaInicio->toDateString(),
-                $fechaFin->toDateString(),
-            ])
-            ->get()
-            ->keyBy(fn (OperacionAsistencia $a) => $a->fecha_asistencia->format('Y-m-d'));
-
-        $calendario = $calendario->map(function (array $dia) use ($asistencias) {
-            /** @var OperacionAsistencia|null $asistencia */
-            $asistencia = $asistencias->get($dia['fecha']);
-
-            if (!$asistencia) {
-                return $dia;
-            }
-
-            $estado = $asistencia->estado_dia;
-            $tipo = match ($estado) {
-                'descanso' => 'descanso',
-                'reemplazado' => 'reemplazado',
-                'ausente_justificado', 'ausente_injustificado', 'ausente_con_permiso' => 'falta',
-                default => 'trabajo',
-            };
-
-            return [
-                ...$dia,
-                'es_trabajo' => $tipo === 'trabajo' || $tipo === 'reemplazado',
-                'tipo' => $tipo,
-                'estado_asistencia' => $estado,
-                'registrado' => true,
-                'origen' => 'asistencia',
-                'es_ausente' => (bool) $asistencia->es_ausente,
-                'es_descanso' => (bool) $asistencia->es_descanso,
-            ];
-        });
+        $historial = $this->asistenciaService->incorporarHistorialPuestos(
+            $calendario,
+            $asignacion->personal_id,
+            $asignacion->id,
+            $fechaInicio,
+            $fechaFin
+        );
 
         return response()->json([
             'success' => true,
@@ -1302,8 +1345,40 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 ],
                 'turno' => $asignacion->turno,
                 'fecha_inicio_asignacion' => $asignacion->fecha_inicio,
-                'calendario' => $calendario->values(),
+                'puestos_anteriores' => $historial['puestos_anteriores'],
+                'calendario' => $historial['calendario'],
             ],
+        ]);
+    }
+
+    /**
+     * GET /api/v1/operaciones/asistencia/calendario-personal/{personalId}
+     * Calendario de días trabajados de un agente, con o sin puesto asignado.
+     */
+    public function calendarioPersonal(Request $request, int $personalId): JsonResponse
+    {
+        $request->validate([
+            'fecha_inicio' => 'required|date',
+            'fecha_fin' => 'required|date|after_or_equal:fecha_inicio',
+        ]);
+
+        $fechaInicio = Carbon::parse($request->input('fecha_inicio'));
+        $fechaFin = Carbon::parse($request->input('fecha_fin'));
+
+        if ($fechaInicio->diffInDays($fechaFin) > 90) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El rango máximo es de 90 días.',
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $this->asistenciaService->getCalendarioDiasTrabajados(
+                $personalId,
+                $fechaInicio,
+                $fechaFin
+            ),
         ]);
     }
 

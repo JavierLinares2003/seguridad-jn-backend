@@ -482,6 +482,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/asistencia/calendario-turno/{personalAsignadoId}', [OperacionAsistenciaController::class, 'calendarioTurno'])
                 ->name('api.v1.operaciones.asistencia.calendario-turno');
 
+            Route::get('/asistencia/calendario-personal/{personalId}', [OperacionAsistenciaController::class, 'calendarioPersonal'])
+                ->name('api.v1.operaciones.asistencia.calendario-personal');
+
             // CRUD con {id} AL FINAL (para no capturar rutas específicas)
             Route::get('/asistencia/{id}', [OperacionAsistenciaController::class, 'show'])
                 ->name('api.v1.operaciones.asistencia.show')

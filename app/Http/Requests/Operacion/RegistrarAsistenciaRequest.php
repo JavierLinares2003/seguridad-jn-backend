@@ -47,6 +47,10 @@ class RegistrarAsistenciaRequest extends FormRequest
                 'nullable',
                 'boolean',
             ],
+            'asistencias.*.es_extra' => [
+                'nullable',
+                'boolean',
+            ],
             'asistencias.*.motivo_ausencia_id' => [
                 'nullable',
                 'integer',
