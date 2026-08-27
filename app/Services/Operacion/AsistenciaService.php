@@ -87,12 +87,7 @@ class AsistenciaService
     {
         // Obtener todas las asignaciones activas del proyecto para esa fecha
         $asignaciones = OperacionPersonalAsignado::with(['personal', 'turno', 'configuracionPuesto.tipoPersonal'])
-            ->whereIn('estado_asignacion', ['activa', 'finalizada'])
-            ->where('fecha_inicio', '<=', $fecha)
-            ->where(function ($q) use ($fecha) {
-                $q->whereNull('fecha_fin')
-                  ->orWhere('fecha_fin', '>=', $fecha);
-            })
+            ->vigentes($fecha)
             ->when($buscar, fn ($q) => $q->whereHas('personal', fn ($pq) => $pq->buscar($buscar)));
 
         if ($proyectoId > 0) {

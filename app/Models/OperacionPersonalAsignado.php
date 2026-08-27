@@ -96,15 +96,20 @@ class OperacionPersonalAsignado extends Model
         return $query->where('estado_asignacion', 'suspendida');
     }
 
+    /**
+     * Titulares en un día: solo asignaciones activas que cubren esa fecha.
+     * No incluir finalizadas: al desasignar el agente debe salir del puesto
+     * y pasar a disponibles el mismo día. El historial va en el calendario.
+     */
     public function scopeVigentes(Builder $query, ?Carbon $fecha = null): Builder
     {
         $fecha = $fecha ?? Carbon::today();
 
         return $query->where('estado_asignacion', 'activa')
-            ->where('fecha_inicio', '<=', $fecha)
+            ->whereDate('fecha_inicio', '<=', $fecha)
             ->where(function ($q) use ($fecha) {
                 $q->whereNull('fecha_fin')
-                  ->orWhere('fecha_fin', '>=', $fecha);
+                    ->orWhereDate('fecha_fin', '>=', $fecha);
             });
     }
 

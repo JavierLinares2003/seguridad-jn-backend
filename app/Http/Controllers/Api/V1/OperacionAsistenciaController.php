@@ -310,12 +310,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
     private function getProyectosConPersonal(Carbon $fecha, int $perPage, ?string $buscar = null): JsonResponse
     {
         // Obtener IDs de proyectos que tienen asignaciones activas en esta fecha
-        $proyectosConAsignaciones = \App\Models\OperacionPersonalAsignado::whereIn('estado_asignacion', ['activa', 'finalizada'])
-            ->where('fecha_inicio', '<=', $fecha)
-            ->where(function ($q) use ($fecha) {
-                $q->whereNull('fecha_fin')
-                  ->orWhere('fecha_fin', '>=', $fecha);
-            })
+        $proyectosConAsignaciones = \App\Models\OperacionPersonalAsignado::vigentes($fecha)
             ->whereNotNull('proyecto_id')
             ->when($buscar, fn ($q) => $q->whereHas('personal', fn ($pq) => $pq->buscar($buscar)))
             ->distinct()
@@ -363,12 +358,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 'configuracionPuesto.tipoPersonal',
             ])
             ->where('proyecto_id', $proyecto->id)
-            ->whereIn('estado_asignacion', ['activa', 'finalizada'])
-            ->where('fecha_inicio', '<=', $fecha)
-            ->where(function ($q) use ($fecha) {
-                $q->whereNull('fecha_fin')
-                  ->orWhere('fecha_fin', '>=', $fecha);
-            })
+            ->vigentes($fecha)
             ->get();
 
             // Obtener asistencias para estas asignaciones
@@ -454,12 +444,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
      */
     private function buscarPersonalEnFecha(Request $request, Carbon $fecha): JsonResponse
     {
-        $query = \App\Models\OperacionPersonalAsignado::whereIn('estado_asignacion', ['activa', 'finalizada'])
-            ->where('fecha_inicio', '<=', $fecha)
-            ->where(function ($q) use ($fecha) {
-                $q->whereNull('fecha_fin')
-                  ->orWhere('fecha_fin', '>=', $fecha);
-            })
+        $query = \App\Models\OperacionPersonalAsignado::vigentes($fecha)
             ->whereNotNull('proyecto_id');
 
         if ($request->filled('personal_id')) {
@@ -502,12 +487,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 'configuracionPuesto.tipoPersonal',
             ])
             ->where('proyecto_id', $proyecto->id)
-            ->whereIn('estado_asignacion', ['activa', 'finalizada'])
-            ->where('fecha_inicio', '<=', $fecha)
-            ->where(function ($q) use ($fecha) {
-                $q->whereNull('fecha_fin')
-                  ->orWhere('fecha_fin', '>=', $fecha);
-            })
+            ->vigentes($fecha)
             ->get();
 
             $asistencias = OperacionAsistencia::with(['personalReemplazo', 'motivoAusencia', 'permisoReposicion'])
@@ -594,12 +574,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
     private function getPersonalSinAsignar(Carbon $fecha, int $perPage = 15, ?int $departamentoId = null, ?string $buscar = null): JsonResponse
     {
         // Personal activo que NO tiene asignación activa en esta fecha
-        $personalConAsignacion = \App\Models\OperacionPersonalAsignado::whereIn('estado_asignacion', ['activa', 'finalizada'])
-            ->where('fecha_inicio', '<=', $fecha)
-            ->where(function ($q) use ($fecha) {
-                $q->whereNull('fecha_fin')
-                  ->orWhere('fecha_fin', '>=', $fecha);
-            })
+        $personalConAsignacion = \App\Models\OperacionPersonalAsignado::vigentes($fecha)
             ->pluck('personal_id');
 
         // CASO 1: Vista detallada de un departamento específico con paginación
@@ -873,12 +848,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         }
 
         // Personal activo que NO tiene asignación activa en esta fecha
-        $personalConAsignacion = \App\Models\OperacionPersonalAsignado::whereIn('estado_asignacion', ['activa', 'finalizada'])
-            ->where('fecha_inicio', '<=', $fechaCarbon)
-            ->where(function ($q) use ($fechaCarbon) {
-                $q->whereNull('fecha_fin')
-                  ->orWhere('fecha_fin', '>=', $fechaCarbon);
-            })
+        $personalConAsignacion = \App\Models\OperacionPersonalAsignado::vigentes($fechaCarbon)
             ->pluck('personal_id');
 
         // Obtener departamentos con conteo de personal sin asignar
