@@ -69,21 +69,32 @@ class PlanillaService
             $diasHabiles = $this->calcularDiasHabiles($periodoInicio, $periodoFin);
 
             // Obtener personal según ámbito o selección explícita
-            $query = Personal::where('estado', 'activo')
+            $query = Personal::query()
                 ->with(['asignacionesActivas.configuracionPuesto', 'asignacionesActivas.turno']);
 
             if (!empty($personalIds)) {
-                // Selección explícita de personal
                 $query->whereIn('id', $personalIds);
             } else {
-                // Filtro por ámbito (proyecto o departamento)
+                $query->where(function ($q) use ($periodoInicio, $periodoFin) {
+                    $q->where('estado', 'activo')
+                        ->orWhereHas('asignaciones', function ($aq) use ($periodoInicio, $periodoFin) {
+                            $aq->whereIn('estado_asignacion', ['activa', 'finalizada'])
+                                ->where('fecha_inicio', '<=', $periodoFin)
+                                ->where(function ($q2) use ($periodoInicio) {
+                                    $q2->whereNull('fecha_fin')
+                                        ->orWhere('fecha_fin', '>=', $periodoInicio);
+                                });
+                        });
+                });
+
                 if ($proyectoId) {
-                    $query->whereHas('asignaciones', function ($q) use ($proyectoId, $periodoFin) {
+                    $query->whereHas('asignaciones', function ($q) use ($proyectoId, $periodoInicio, $periodoFin) {
                         $q->where('proyecto_id', $proyectoId)
-                          ->where('estado_asignacion', 'activa')
-                          ->where(function ($q2) use ($periodoFin) {
+                          ->whereIn('estado_asignacion', ['activa', 'finalizada'])
+                          ->where('fecha_inicio', '<=', $periodoFin)
+                          ->where(function ($q2) use ($periodoInicio) {
                               $q2->whereNull('fecha_fin')
-                                 ->orWhere('fecha_fin', '>=', $periodoFin);
+                                 ->orWhere('fecha_fin', '>=', $periodoInicio);
                           });
                     });
                 }
@@ -133,7 +144,7 @@ class PlanillaService
 
             // Cargar relaciones
             return $planilla->load([
-                'detalles.personal',
+                'detalles.personal' => fn ($q) => $q->withExists('entregasEquipoPendientes'),
                 'detalles.proyecto',
                 'creadoPor'
             ]);
@@ -180,6 +191,7 @@ class PlanillaService
             $diasAusentes     = 0;
             $horasTrabajadas  = $diasTrabajados * $horasPorTurno;
         }
+        $diasExtra = $this->contarDiasExtra($empleado->id, $periodoInicio, $periodoFin);
 
         // Calcular descuentos de transacciones (multas, préstamos, etc.)
         $descuentos = $this->calcularDescuentos($empleado->id, $periodoInicio, $periodoFin);
@@ -244,6 +256,7 @@ class PlanillaService
             'dias_trabajados' => $diasTrabajados,
             'dias_descanso' => $diasDescanso,
             'dias_ausentes' => $diasAusentes,
+            'dias_extra' => $diasExtra,
             'horas_trabajadas' => $horasTrabajadas,
             'horas_por_turno' => $horasPorTurno,
             'pago_por_hora' => round($pagoPorHora, 2),
@@ -366,6 +379,26 @@ class PlanillaService
             })
             ->whereBetween('oa.fecha_asistencia', [$inicio, $fin])
             ->where('oa.es_descanso', true)
+            ->distinct()
+            ->count('oa.fecha_asistencia');
+    }
+
+    /**
+     * Cuenta días marcados como extra (cuentan como presente; solo trazabilidad).
+     */
+    private function contarDiasExtra(int $personalId, string $inicio, string $fin): int
+    {
+        return DB::table('operaciones_asistencia as oa')
+            ->leftJoin('operaciones_personal_asignado as opa', 'oa.personal_asignado_id', '=', 'opa.id')
+            ->where(function ($query) use ($personalId) {
+                $query->where('opa.personal_id', $personalId)
+                      ->orWhere(function ($q) use ($personalId) {
+                          $q->where('oa.personal_id', $personalId)
+                            ->whereNull('oa.personal_asignado_id');
+                      });
+            })
+            ->whereBetween('oa.fecha_asistencia', [$inicio, $fin])
+            ->where('oa.es_extra', true)
             ->distinct()
             ->count('oa.fecha_asistencia');
     }
@@ -705,7 +738,6 @@ class PlanillaService
             // Usar el personal registrado en el pivot (seleccionado originalmente)
             $personal = $planilla->personalSeleccionado()
                 ->with(['asignacionesActivas.configuracionPuesto', 'asignacionesActivas.turno'])
-                ->where('estado', 'activo')
                 ->get();
 
             if ($personal->isEmpty()) {
@@ -743,7 +775,7 @@ class PlanillaService
 
             // Cargar relaciones
             return $planilla->load([
-                'detalles.personal',
+                'detalles.personal' => fn ($q) => $q->withExists('entregasEquipoPendientes'),
                 'detalles.proyecto',
                 'creadoPor'
             ]);

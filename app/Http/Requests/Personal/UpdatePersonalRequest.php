@@ -60,6 +60,7 @@ class UpdatePersonalRequest extends FormRequest
             'nit' => ['nullable', 'string', 'max:15', Rule::unique('personal')->ignore($personalId)],
             'email' => ['nullable', 'email', 'max:150', Rule::unique('personal')->ignore($personalId)],
             'telefono' => ['sometimes', 'required', 'string', 'max:15'],
+            'telefono_whatsapp' => ['nullable', 'string', 'max:15'],
             'numero_igss' => ['nullable', 'string', 'max:50'],
             'fecha_nacimiento' => ['sometimes', 'required', 'date', 'before:today'],
             'estado_civil_id' => ['nullable', 'exists:estados_civiles,id'],
@@ -95,14 +96,24 @@ class UpdatePersonalRequest extends FormRequest
 
             // Otros
             'observaciones' => ['nullable', 'string'],
+            'observacion_recontratacion' => ['nullable', 'string', 'max:1000'],
+            'fecha_ingreso_original' => ['nullable', 'date'],
+            'fecha_reingreso' => ['nullable', 'date'],
             'foto_perfil' => ['nullable', 'string', 'max:255'],
-            'estado' => ['nullable', 'in:activo,inactivo,suspendido,no_contratar,extrero'],
+            'estado' => ['nullable', 'in:activo,inactivo,suspendido,no_contratar,extrero,pre_alta'],
+            'tallas' => ['nullable', 'array'],
+            'tallas.talla_camisa' => ['nullable', 'string', 'max:10'],
+            'tallas.talla_pantalon' => ['nullable', 'string', 'max:10'],
+            'tallas.talla_zapato' => ['nullable', 'string', 'max:10'],
+            'tallas.talla_chaleco' => ['nullable', 'string', 'max:10'],
+            'tallas.talla_gorra' => ['nullable', 'string', 'max:10'],
+            'tallas.genero_preferido' => ['nullable', 'string', 'max:20'],
 
             // Dirección
             'direccion' => ['nullable', 'array'],
             'direccion.departamento_geo_id' => ['nullable', 'exists:departamentos_geograficos,id'],
             'direccion.municipio_id' => ['nullable', 'exists:municipios,id'],
-            'direccion.zona' => ['nullable', 'integer', 'min:1', 'max:25'],
+            'direccion.zona' => ['nullable', 'integer', 'min:0', 'max:25'],
             'direccion.direccion_completa' => ['required_with:direccion', 'string'],
 
             // Referencias laborales

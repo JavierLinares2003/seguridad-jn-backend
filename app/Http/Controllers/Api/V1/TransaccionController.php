@@ -271,10 +271,10 @@ class TransaccionController extends Controller
         $request->validate([
             'cuotas' => ['required', 'array', 'min:1'],
             'cuotas.*.id' => ['required', 'integer', 'exists:operaciones_transacciones,id'],
-            'cuotas.*.fecha_transaccion' => ['required', 'date'],
+            'cuotas.*.fecha_transaccion' => ['nullable', 'date'],
+            'cuotas.*.monto' => ['nullable', 'numeric', 'min:0.01'],
         ], [
             'cuotas.required' => 'Debe enviar las cuotas a actualizar.',
-            'cuotas.*.fecha_transaccion.required' => 'Cada cuota necesita una fecha.',
         ]);
 
         try {
@@ -287,7 +287,7 @@ class TransaccionController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Se actualizaron ' . $actualizadas->count() . ' fecha(s) pendiente(s).',
+                'message' => 'Se actualizaron ' . $actualizadas->count() . ' cuota(s) pendiente(s).',
                 'data' => [
                     'actualizadas' => $actualizadas->count(),
                     'cuotas' => $cuotas,

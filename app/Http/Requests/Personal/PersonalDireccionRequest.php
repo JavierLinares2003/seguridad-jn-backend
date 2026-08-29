@@ -29,7 +29,7 @@ class PersonalDireccionRequest extends FormRequest
                     }
                 },
             ],
-            'zona' => ['nullable', 'integer', 'min:1', 'max:25'],
+            'zona' => ['nullable', 'integer', 'min:0', 'max:25'],
             'direccion_completa' => ['required', 'string', 'max:500'],
             'es_direccion_actual' => ['boolean'],
         ];
@@ -40,7 +40,7 @@ class PersonalDireccionRequest extends FormRequest
         return [
             'departamento_geo_id.exists' => 'El departamento seleccionado no existe.',
             'municipio_id.exists' => 'El municipio seleccionado no existe.',
-            'zona.min' => 'La zona debe ser mínimo 1.',
+            'zona.min' => 'La zona debe ser mínimo 0.',
             'zona.max' => 'La zona debe ser máximo 25.',
             'direccion_completa.required' => 'La dirección completa es obligatoria.',
             'direccion_completa.max' => 'La dirección no puede exceder 500 caracteres.',

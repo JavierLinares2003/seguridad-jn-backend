@@ -23,6 +23,8 @@ class StorePrestamoRequest extends FormRequest
             'fecha_primer_pago' => ['nullable', 'date', 'after_or_equal:fecha_prestamo'],
             'cuotas_totales' => ['nullable', 'integer', 'min:1'],
             'monto_cuota' => ['nullable', 'numeric', 'min:0'],
+            'cuotas_montos' => ['nullable', 'array'],
+            'cuotas_montos.*' => ['numeric', 'min:0.01'],
             'observaciones' => ['nullable', 'string', 'max:1000'],
             'comprobante' => ['nullable', 'file', 'mimes:jpeg,jpg,png,gif,webp,pdf,doc,docx,xls,xlsx', 'max:10240'],
         ];

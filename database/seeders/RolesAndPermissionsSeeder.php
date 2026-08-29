@@ -93,6 +93,10 @@ class RolesAndPermissionsSeeder extends Seeder
 
             // Datos sensibles de personal (salario, banco, salud, familia)
             'view-personal-sensible',
+
+            // BODEGA / Inventario central
+            'view-bodega',
+            'manage-bodega',
         ];
 
         // Create permissions
@@ -288,6 +292,10 @@ class RolesAndPermissionsSeeder extends Seeder
             'manage-transacciones',
             'manage-prestamos',
 
+            // Bodega
+            'view-bodega',
+            'manage-bodega',
+
             // Vacaciones (acceso completo - para gestión de nómina)
             'manage-vacaciones',
 
@@ -311,6 +319,8 @@ class RolesAndPermissionsSeeder extends Seeder
             'manage-asignaciones',
             'view-alertas-cobertura',
             'view-catalogos',
+            'view-bodega',
+            'manage-bodega',
         ]);
     }
 

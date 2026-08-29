@@ -222,6 +222,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/', [PersonalController::class, 'store'])
                 ->name('api.v1.personal.store');
 
+            Route::post('/pre-alta', [PersonalController::class, 'storePreAlta'])
+                ->name('api.v1.personal.preAlta');
+
             Route::get('/{personal}', [PersonalController::class, 'show'])
                 ->name('api.v1.personal.show');
 
@@ -245,6 +248,9 @@ Route::prefix('v1')->group(function () {
 
             Route::post('/{personal}/dar-baja', [PersonalController::class, 'darBaja'])
                 ->name('api.v1.personal.darBaja');
+
+            Route::post('/{personal}/reingreso', [PersonalController::class, 'reingreso'])
+                ->name('api.v1.personal.reingreso');
 
             // Dirección
             Route::get('/{personal}/direccion', [PersonalController::class, 'getDireccion'])
@@ -615,6 +621,104 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.proyecto.actas.store');
             Route::get('/{id}/download', [\App\Http\Controllers\Api\V1\ProyectoActaController::class, 'download'])
                 ->name('api.v1.proyecto.actas.download');
+        });
+
+        // Bodega / Inventario central
+        Route::prefix('bodega')->group(function () {
+            Route::get('/dashboard', [\App\Http\Controllers\Api\V1\BodegaController::class, 'dashboard'])
+                ->name('api.v1.bodega.dashboard');
+            Route::get('/stock-bajo', [\App\Http\Controllers\Api\V1\BodegaController::class, 'stockBajo'])
+                ->name('api.v1.bodega.stock-bajo');
+            Route::get('/entregas', [\App\Http\Controllers\Api\V1\BodegaController::class, 'entregas'])
+                ->name('api.v1.bodega.entregas');
+            Route::post('/entregas', [\App\Http\Controllers\Api\V1\BodegaController::class, 'storeEntrega'])
+                ->name('api.v1.bodega.entregas.store');
+            Route::get('/entregas/{id}', [\App\Http\Controllers\Api\V1\BodegaController::class, 'showEntrega'])
+                ->name('api.v1.bodega.entregas.show');
+            Route::get('/entregas/{id}/boleta', [\App\Http\Controllers\Api\V1\BodegaController::class, 'boletaEntrega'])
+                ->name('api.v1.bodega.entregas.boleta');
+            Route::post('/entregas/{id}/devolver', [\App\Http\Controllers\Api\V1\BodegaController::class, 'devolverEntrega'])
+                ->name('api.v1.bodega.entregas.devolver');
+
+            Route::get('/kits', [\App\Http\Controllers\Api\V1\BodegaController::class, 'kits'])
+                ->name('api.v1.bodega.kits.index');
+            Route::post('/kits', [\App\Http\Controllers\Api\V1\BodegaController::class, 'storeKit'])
+                ->name('api.v1.bodega.kits.store');
+            Route::get('/kits/{id}', [\App\Http\Controllers\Api\V1\BodegaController::class, 'showKit'])
+                ->name('api.v1.bodega.kits.show');
+            Route::put('/kits/{id}', [\App\Http\Controllers\Api\V1\BodegaController::class, 'updateKit'])
+                ->name('api.v1.bodega.kits.update');
+            Route::delete('/kits/{id}', [\App\Http\Controllers\Api\V1\BodegaController::class, 'destroyKit'])
+                ->name('api.v1.bodega.kits.destroy');
+
+            Route::get('/categorias', [\App\Http\Controllers\Api\V1\BodegaController::class, 'categorias'])
+                ->name('api.v1.bodega.categorias.index');
+            Route::post('/categorias', [\App\Http\Controllers\Api\V1\BodegaController::class, 'storeCategoria'])
+                ->name('api.v1.bodega.categorias.store');
+            Route::put('/categorias/{id}', [\App\Http\Controllers\Api\V1\BodegaController::class, 'updateCategoria'])
+                ->name('api.v1.bodega.categorias.update');
+            Route::delete('/categorias/{id}', [\App\Http\Controllers\Api\V1\BodegaController::class, 'destroyCategoria'])
+                ->name('api.v1.bodega.categorias.destroy');
+
+            Route::get('/armas/catalogo', [\App\Http\Controllers\Api\V1\BodegaArmaController::class, 'catalogo'])
+                ->name('api.v1.bodega.armas.catalogo');
+            Route::get('/armas', [\App\Http\Controllers\Api\V1\BodegaArmaController::class, 'index'])
+                ->name('api.v1.bodega.armas.index');
+            Route::post('/armas', [\App\Http\Controllers\Api\V1\BodegaArmaController::class, 'store'])
+                ->name('api.v1.bodega.armas.store');
+            Route::get('/armas/{id}', [\App\Http\Controllers\Api\V1\BodegaArmaController::class, 'show'])
+                ->name('api.v1.bodega.armas.show');
+            Route::put('/armas/{id}', [\App\Http\Controllers\Api\V1\BodegaArmaController::class, 'update'])
+                ->name('api.v1.bodega.armas.update');
+
+            Route::get('/proveedores', [\App\Http\Controllers\Api\V1\BodegaController::class, 'proveedores'])
+                ->name('api.v1.bodega.proveedores.index');
+            Route::post('/proveedores', [\App\Http\Controllers\Api\V1\BodegaController::class, 'storeProveedor'])
+                ->name('api.v1.bodega.proveedores.store');
+            Route::put('/proveedores/{id}', [\App\Http\Controllers\Api\V1\BodegaController::class, 'updateProveedor'])
+                ->name('api.v1.bodega.proveedores.update');
+
+            Route::get('/solicitudes-compra', [\App\Http\Controllers\Api\V1\BodegaController::class, 'solicitudesCompra'])
+                ->name('api.v1.bodega.solicitudes.index');
+            Route::post('/solicitudes-compra', [\App\Http\Controllers\Api\V1\BodegaController::class, 'storeSolicitudCompra'])
+                ->name('api.v1.bodega.solicitudes.store');
+            Route::get('/solicitudes-compra/{id}', [\App\Http\Controllers\Api\V1\BodegaController::class, 'showSolicitudCompra'])
+                ->name('api.v1.bodega.solicitudes.show');
+            Route::post('/solicitudes-compra/{id}/avanzar', [\App\Http\Controllers\Api\V1\BodegaController::class, 'avanzarSolicitudCompra'])
+                ->name('api.v1.bodega.solicitudes.avanzar');
+
+            Route::get('/compras', [\App\Http\Controllers\Api\V1\BodegaController::class, 'facturasCompra'])
+                ->name('api.v1.bodega.compras.index');
+            Route::post('/compras/leer-pdf', [\App\Http\Controllers\Api\V1\BodegaController::class, 'leerFacturaPdf'])
+                ->name('api.v1.bodega.compras.leer-pdf');
+            Route::post('/compras', [\App\Http\Controllers\Api\V1\BodegaController::class, 'storeFacturaCompra'])
+                ->name('api.v1.bodega.compras.store');
+            Route::get('/compras/{id}', [\App\Http\Controllers\Api\V1\BodegaController::class, 'showFacturaCompra'])
+                ->name('api.v1.bodega.compras.show');
+
+            Route::get('/productos', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'index'])
+                ->name('api.v1.bodega.productos.index');
+            Route::post('/productos', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'store'])
+                ->name('api.v1.bodega.productos.store');
+            Route::get('/productos/{id}', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'show'])
+                ->name('api.v1.bodega.productos.show');
+            Route::put('/productos/{id}', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'update'])
+                ->name('api.v1.bodega.productos.update');
+            Route::delete('/productos/{id}', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'destroy'])
+                ->name('api.v1.bodega.productos.destroy');
+            Route::post('/productos/{id}/variantes', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'storeVariante'])
+                ->name('api.v1.bodega.productos.variantes.store');
+            Route::put('/productos/{productoId}/variantes/{varianteId}', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'updateVariante'])
+                ->name('api.v1.bodega.productos.variantes.update');
+
+            Route::get('/movimientos', [\App\Http\Controllers\Api\V1\BodegaMovimientoController::class, 'index'])
+                ->name('api.v1.bodega.movimientos.index');
+            Route::post('/movimientos', [\App\Http\Controllers\Api\V1\BodegaMovimientoController::class, 'store'])
+                ->name('api.v1.bodega.movimientos.store');
+            Route::post('/movimientos/entrega', [\App\Http\Controllers\Api\V1\BodegaMovimientoController::class, 'entrega'])
+                ->name('api.v1.bodega.movimientos.entrega');
+            Route::get('/movimientos/{id}', [\App\Http\Controllers\Api\V1\BodegaMovimientoController::class, 'show'])
+                ->name('api.v1.bodega.movimientos.show');
         });
 
     });

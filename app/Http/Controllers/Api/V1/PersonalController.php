@@ -25,6 +25,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class PersonalController extends Controller
 {
@@ -45,6 +46,7 @@ class PersonalController extends Controller
                 'departamento:id,nombre',
                 'nivelEstudio:id,nombre',
             ])
+            ->withExists('entregasEquipoPendientes')
             ->buscar($request->input('buscar'))
             ->byDepartamento($request->input('departamento_id'))
             ->byDepartamentoNombre($request->input('departamento_nombre'))
@@ -87,8 +89,12 @@ class PersonalController extends Controller
         try {
             DB::beginTransaction();
 
-            // Crear personal
-            $personal = Personal::create($request->validated());
+            $payload = $this->payloadPersonal($request->validated());
+            if (empty($payload['fecha_ingreso_original']) && !empty($payload['fecha_inicio'])) {
+                $payload['fecha_ingreso_original'] = $payload['fecha_inicio'];
+            }
+            $personal = Personal::create($payload);
+            $this->syncTallas($personal, $request->input('tallas'));
 
             // Crear dirección si se envió
             if ($request->has('direccion')) {
@@ -173,7 +179,10 @@ class PersonalController extends Controller
             'familiares.parentesco',
             'documentos.tipoDocumento',
             'documentos.subidoPor',
-        ])->find($id);
+            'talla',
+        ])
+            ->withExists('entregasEquipoPendientes')
+            ->find($id);
 
         if (!$personal) {
             return response()->json([
@@ -348,8 +357,14 @@ class PersonalController extends Controller
         try {
             DB::beginTransaction();
 
-            // Actualizar datos del personal
-            $personal->update($request->validated());
+            $payload = $this->payloadPersonal($request->validated());
+            if (!empty($personal->fecha_ingreso_original)) {
+                unset($payload['fecha_ingreso_original']);
+            } elseif (empty($payload['fecha_ingreso_original']) && !empty($payload['fecha_inicio'])) {
+                $payload['fecha_ingreso_original'] = $payload['fecha_inicio'];
+            }
+            $personal->update($payload);
+            $this->syncTallas($personal, $request->input('tallas'));
 
             // Actualizar o crear dirección
             if ($request->has('direccion')) {
@@ -514,6 +529,103 @@ class PersonalController extends Controller
                 'estado' => $personal->estado,
             ],
         ]);
+    }
+
+    public function storePreAlta(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'nombres' => ['required', 'string', 'max:100'],
+            'apellidos' => ['required', 'string', 'max:100'],
+            'dpi' => ['required', 'string', 'size:13', Rule::unique('personal', 'dpi')->whereNull('deleted_at')],
+            'telefono' => ['nullable', 'string', 'max:15'],
+            'tallas' => ['nullable', 'array'],
+            'tallas.talla_camisa' => ['nullable', 'string', 'max:10'],
+            'tallas.talla_pantalon' => ['nullable', 'string', 'max:10'],
+            'tallas.talla_zapato' => ['nullable', 'string', 'max:10'],
+            'tallas.talla_chaleco' => ['nullable', 'string', 'max:10'],
+            'tallas.talla_gorra' => ['nullable', 'string', 'max:10'],
+            'tallas.genero_preferido' => ['nullable', 'string', 'max:20'],
+        ]);
+
+        $personal = Personal::create([
+            'nombres' => $data['nombres'],
+            'apellidos' => $data['apellidos'],
+            'dpi' => $data['dpi'],
+            'telefono' => ($data['telefono'] ?? '') !== '' ? $data['telefono'] : '00000000',
+            'fecha_nacimiento' => '1990-01-01',
+            'altura' => 1.70,
+            'salario_base' => 0,
+            'puesto' => 'Pendiente expediente',
+            'estado' => 'pre_alta',
+            'fecha_inicio' => now()->toDateString(),
+            'fecha_ingreso_original' => now()->toDateString(),
+        ]);
+        $this->syncTallas($personal, $data['tallas'] ?? null);
+        $personal->load(['talla', 'departamento', 'tipoSangre']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pre-alta registrada. Complete el expediente cuando esté listo.',
+            'data' => new PersonalResource($personal),
+        ], 201);
+    }
+
+    public function reingreso(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'fecha_reingreso' => ['required', 'date'],
+            'observacion_recontratacion' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $personal = Personal::find($id);
+        if (!$personal) {
+            return response()->json(['success' => false, 'message' => 'Personal no encontrado.'], 404);
+        }
+        if (!in_array($personal->estado, ['suspendido', 'no_contratar', 'inactivo'], true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solo se puede reingresar a personal dado de baja, inactivo o no contratar.',
+            ], 422);
+        }
+
+        $original = $personal->fecha_ingreso_original ?: $personal->fecha_inicio;
+
+        $personal->update([
+            'estado' => 'activo',
+            'fecha_reingreso' => $validated['fecha_reingreso'],
+            'observacion_recontratacion' => $validated['observacion_recontratacion'] ?? $personal->observacion_recontratacion,
+            'fecha_ingreso_original' => $original,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Reingreso registrado. El calendario histórico se conserva.',
+            'data' => new PersonalResource($personal->fresh(['talla', 'tipoSangre', 'departamento'])),
+        ]);
+    }
+
+    private function payloadPersonal(array $validated): array
+    {
+        unset($validated['tallas'], $validated['direccion'], $validated['referencias_laborales'], $validated['redes_sociales'], $validated['familiares']);
+        return $validated;
+    }
+
+    private function syncTallas(Personal $personal, ?array $tallas): void
+    {
+        if (!is_array($tallas)) {
+            return;
+        }
+        $personal->talla()->updateOrCreate(
+            ['personal_id' => $personal->id],
+            [
+                'talla_camisa' => $tallas['talla_camisa'] ?? null,
+                'talla_pantalon' => $tallas['talla_pantalon'] ?? null,
+                'talla_zapato' => $tallas['talla_zapato'] ?? null,
+                'talla_chaleco' => $tallas['talla_chaleco'] ?? null,
+                'talla_gorra' => $tallas['talla_gorra'] ?? null,
+                'genero_preferido' => $tallas['genero_preferido'] ?? null,
+            ]
+        );
     }
 
     public function darBaja(Request $request, int $id): JsonResponse
@@ -1142,7 +1254,7 @@ class PersonalController extends Controller
                 'message' => 'Foto de perfil actualizada exitosamente.',
                 'data' => [
                     'foto_perfil' => $path,
-                    'foto_url' => Storage::disk('personal_fotos')->url($path),
+                    'foto_url' => $personal->foto_url,
                 ],
             ]);
 

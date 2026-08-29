@@ -49,28 +49,31 @@ class OperacionAsistenciaObserver
             // Obtener la fecha de la asistencia
             $fechaAsistencia = $asistencia->fecha_asistencia;
 
-            // Obtener el personal_id (puede venir de personal_id directo o de la asignación)
-            $personalId = $asistencia->personal_id;
+            $ids = collect([
+                $asistencia->getPersonalIdEfectivo(),
+                $asistencia->personal_reemplazo_id,
+            ])->filter()->unique()->values();
 
-            if (!$personalId && $asistencia->personalAsignado) {
-                $personalId = $asistencia->personalAsignado->personal_id;
+            if ($ids->isEmpty()) {
+                return;
             }
 
-            if (!$personalId) {
-                return; // No hay personal asociado
-            }
-
-            // Buscar planillas en borrador que incluyan esta fecha
             $planillas = Planilla::where('estado_planilla', 'borrador')
                 ->where('periodo_inicio', '<=', $fechaAsistencia)
                 ->where('periodo_fin', '>=', $fechaAsistencia)
                 ->get();
 
+            $recalculadas = [];
             foreach ($planillas as $planilla) {
-                // Verificar si el personal está en el ámbito de la planilla
-                if ($this->personalEstaEnAmbitoPlanilla($personalId, $planilla)) {
-                    Log::info("Recalculando planilla {$planilla->id} por cambio en asistencia {$asistencia->id}");
-                    $this->planillaService->recalcularPlanilla($planilla->id);
+                foreach ($ids as $personalId) {
+                    if ($this->personalEstaEnAmbitoPlanilla((int) $personalId, $planilla)) {
+                        if (isset($recalculadas[$planilla->id])) {
+                            continue;
+                        }
+                        Log::info("Recalculando planilla {$planilla->id} por cambio en asistencia {$asistencia->id}");
+                        $this->planillaService->recalcularPlanilla($planilla->id);
+                        $recalculadas[$planilla->id] = true;
+                    }
                 }
             }
         } catch (\Exception $e) {

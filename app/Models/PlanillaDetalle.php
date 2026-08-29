@@ -36,6 +36,7 @@ class PlanillaDetalle extends Model
         'tipo_calculo',
         'dias_descanso',
         'dias_ausentes',
+        'dias_extra',
     ];
     
     protected $casts = [
@@ -59,6 +60,7 @@ class PlanillaDetalle extends Model
         'salario_neto' => 'decimal:2',
         'dias_descanso' => 'integer',
         'dias_ausentes' => 'integer',
+        'dias_extra' => 'integer',
     ];
     
     /**

@@ -56,6 +56,8 @@ class PrestamoController extends Controller
     {
         $data = $request->validated();
         unset($data['comprobante']);
+        $cuotasMontos = $data['cuotas_montos'] ?? null;
+        unset($data['cuotas_montos']);
 
         // Set saldo_pendiente equal to monto_total initially
         $data['saldo_pendiente'] = $data['monto_total'];
@@ -63,24 +65,29 @@ class PrestamoController extends Controller
         // Set aprobado_por_user_id to current user
         $data['aprobado_por_user_id'] = auth()->id();
 
-        $prestamo = Prestamo::create($data);
-        $this->guardarComprobante($request, $prestamo, 'prestamos');
+        try {
+            $prestamo = Prestamo::create($data);
+            $this->guardarComprobante($request, $prestamo, 'prestamos');
 
-        // Generar cuotas automáticas si tiene cuotas definidas
-        $cuotasGeneradas = 0;
-        if ($prestamo->cuotas_totales > 0 && $prestamo->monto_cuota > 0) {
-            $cuotasGeneradas = $prestamoService->generarCuotasAutomaticas($prestamo, auth()->id());
+            $cuotasGeneradas = 0;
+            if ($prestamo->cuotas_totales > 0 && $prestamo->monto_cuota > 0) {
+                $cuotasGeneradas = $prestamoService->generarCuotasAutomaticas($prestamo, auth()->id(), $cuotasMontos);
+            }
+
+            $prestamo->load(['personal', 'aprobadoPor']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Préstamo creado exitosamente.' . ($cuotasGeneradas > 0 ? " Se generaron {$cuotasGeneradas} cuotas automáticas." : ''),
+                'data' => $prestamo,
+                'cuotas_generadas' => $cuotasGeneradas,
+            ], 201);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
         }
-
-        // Load relationships
-        $prestamo->load(['personal', 'aprobadoPor']);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Préstamo creado exitosamente.' . ($cuotasGeneradas > 0 ? " Se generaron {$cuotasGeneradas} cuotas automáticas." : ''),
-            'data' => $prestamo,
-            'cuotas_generadas' => $cuotasGeneradas,
-        ], 201);
     }
 
     /**

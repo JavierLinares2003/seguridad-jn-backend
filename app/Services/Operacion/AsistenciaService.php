@@ -28,14 +28,20 @@ class AsistenciaService
         DB::beginTransaction();
 
         try {
-            foreach ($asistencias as $index => $datos) {
+            // Primero descansos y presentes (sin cubridor) para que el trigger
+            // vea el descanso del cubridor antes de validar el reemplazo.
+            $ordenadas = collect($asistencias)->sortBy(function ($datos) {
+                if (!empty($datos['personal_reemplazo_id'])) {
+                    return 2;
+                }
+                return !empty($datos['es_descanso']) ? 0 : 1;
+            })->values();
+
+            foreach ($ordenadas as $index => $datos) {
                 try {
-                    // Normalizar datos para evitar inconsistencias
                     $datos = $this->normalizarDatosAsistencia($datos);
 
-                    // Determinar si es asistencia con asignación o directa
                     if (!empty($datos['personal_asignado_id'])) {
-                        // Asistencia con asignación (comportamiento original)
                         $asistencia = OperacionAsistencia::crearOActualizar(
                             $datos['personal_asignado_id'],
                             $datos['fecha_asistencia'],
@@ -44,7 +50,6 @@ class AsistenciaService
                         );
                         $asistencia->load(['asignacion.personal', 'asignacion.proyecto']);
                     } else {
-                        // Asistencia directa a personal sin asignación
                         $asistencia = OperacionAsistencia::crearOActualizarDirecta(
                             $datos['personal_id'],
                             $datos['fecha_asistencia'],
@@ -54,6 +59,7 @@ class AsistenciaService
                         $asistencia->load(['personal']);
                     }
 
+                    $this->sincronizarFilaCobertura($asistencia);
                     $resultados['exitosos'][] = $asistencia;
                 } catch (\Exception $e) {
                     $resultados['errores'][] = [
@@ -192,29 +198,78 @@ class AsistenciaService
     }
 
     /**
-     * Obtiene personal disponible para reemplazo en una fecha.
+     * Cubridores: sin puesto, o con puesto pero de DESCANSO ese día.
+     * No incluye a quien trabaja (presente/extra) ni al titular.
      */
-    public function getPersonalDisponibleParaReemplazo(Carbon $fecha, ?int $proyectoId = null): Collection
+    public function getPersonalDisponibleParaReemplazo(Carbon $fecha, ?int $proyectoId = null, ?int $excluirPersonalId = null): Collection
     {
-        // Personal activo sin asignación ese día
-        $personalConAsignacion = OperacionPersonalAsignado::query()
+        $asignacionesVigentes = OperacionPersonalAsignado::query()
+            ->with(['proyecto:id,nombre_proyecto', 'configuracionPuesto'])
             ->where('estado_asignacion', 'activa')
             ->where('fecha_inicio', '<=', $fecha)
             ->where(function ($q) use ($fecha) {
                 $q->whereNull('fecha_fin')
                   ->orWhere('fecha_fin', '>=', $fecha);
             })
-            ->pluck('personal_id');
+            ->get()
+            ->keyBy('personal_id');
 
-        return Personal::query()
+        $asistenciasAsignadas = OperacionAsistencia::query()
+            ->whereDate('fecha_asistencia', $fecha)
+            ->whereIn('personal_asignado_id', $asignacionesVigentes->pluck('id'))
+            ->get()
+            ->keyBy('personal_asignado_id');
+
+        $yaCubren = OperacionAsistencia::query()
+            ->whereDate('fecha_asistencia', $fecha)
+            ->where(function ($q) {
+                $q->where('es_cobertura', true)
+                    ->orWhereNotNull('personal_id');
+            })
+            ->whereNull('personal_asignado_id')
+            ->pluck('personal_id')
+            ->filter()
+            ->all();
+
+        $candidatos = Personal::query()
             ->whereIn('estado', ['activo', 'extrero'])
-            ->whereNotIn('id', $personalConAsignacion)
+            ->when($excluirPersonalId, fn ($q) => $q->where('id', '!=', $excluirPersonalId))
             ->with(['sexo', 'departamento'])
+            ->orderBy('nombres')
             ->get();
+
+        return $candidatos->map(function (Personal $persona) use ($asignacionesVigentes, $asistenciasAsignadas, $yaCubren, $proyectoId) {
+            if (in_array($persona->id, $yaCubren, true)) {
+                return null;
+            }
+
+            $asignacion = $asignacionesVigentes->get($persona->id);
+
+            if (!$asignacion) {
+                $persona->origen_cobertura = 'disponible';
+                $persona->proyecto_origen = null;
+                $persona->puesto_origen = null;
+                return $persona;
+            }
+
+            $asistencia = $asistenciasAsignadas->get($asignacion->id);
+            if (!$asistencia || !$asistencia->es_descanso) {
+                return null;
+            }
+
+            if ($proyectoId && (int) $asignacion->proyecto_id === (int) $proyectoId) {
+                return null;
+            }
+
+            $persona->origen_cobertura = 'descanso';
+            $persona->proyecto_origen = $asignacion->proyecto?->nombre_proyecto;
+            $persona->puesto_origen = $asignacion->configuracionPuesto?->nombre_puesto;
+            return $persona;
+        })->filter()->values();
     }
 
     /**
-     * Verifica si un personal puede ser reemplazo.
+     * Verifica si un personal puede ser cubridor ese día.
      */
     public function puedeSerReemplazo(int $personalId, Carbon $fecha): array
     {
@@ -224,12 +279,11 @@ class AsistenciaService
             return ['puede' => false, 'razon' => 'Personal no encontrado.'];
         }
 
-        if ($personal->estado !== 'activo') {
+        if (!in_array($personal->estado, ['activo', 'extrero'], true)) {
             return ['puede' => false, 'razon' => 'El personal no está activo.'];
         }
 
-        // Verificar si tiene asignación activa ese día
-        $tieneAsignacion = OperacionPersonalAsignado::query()
+        $asignacion = OperacionPersonalAsignado::query()
             ->where('personal_id', $personalId)
             ->where('estado_asignacion', 'activa')
             ->where('fecha_inicio', '<=', $fecha)
@@ -237,13 +291,23 @@ class AsistenciaService
                 $q->whereNull('fecha_fin')
                   ->orWhere('fecha_fin', '>=', $fecha);
             })
-            ->exists();
+            ->first();
 
-        if ($tieneAsignacion) {
-            return ['puede' => false, 'razon' => 'El personal tiene asignación activa en esa fecha.'];
+        if (!$asignacion) {
+            return ['puede' => true, 'razon' => null, 'origen' => 'disponible'];
         }
 
-        return ['puede' => true, 'razon' => null];
+        $descanso = OperacionAsistencia::query()
+            ->where('personal_asignado_id', $asignacion->id)
+            ->whereDate('fecha_asistencia', $fecha)
+            ->where('es_descanso', true)
+            ->exists();
+
+        if (!$descanso) {
+            return ['puede' => false, 'razon' => 'El personal está de turno en su puesto. Solo puede cubrir si está de descanso.'];
+        }
+
+        return ['puede' => true, 'razon' => null, 'origen' => 'descanso'];
     }
 
     /**
@@ -253,14 +317,16 @@ class AsistenciaService
     {
         $asistencias = OperacionAsistencia::porPersonal($personalId)
             ->porRangoFechas($fechaInicio, $fechaFin)
-            ->with(['asignacion.proyecto', 'asignacion.turno', 'personal'])
+            ->with(['asignacion.proyecto', 'asignacion.turno', 'personal', 'proyectoCobertura'])
             ->orderBy('fecha_asistencia', 'desc')
             ->get();
 
         $totalDias = $fechaInicio->diffInDays($fechaFin) + 1;
-        $diasTrabajados = $asistencias->where('es_descanso', false)->where('es_ausente', false)->count();
-        $diasDescanso = $asistencias->where('es_descanso', true)->count();
-        $diasAusente = $asistencias->where('es_ausente', true)->count();
+        $propias = $asistencias->where('es_cobertura', false);
+        $diasTrabajados = $propias->where('es_descanso', false)->where('es_ausente', false)->count()
+            + $asistencias->where('es_cobertura', true)->count();
+        $diasDescanso = $propias->where('es_descanso', true)->count();
+        $diasAusente = $propias->where('es_ausente', true)->count();
 
         return [
             'personal_id' => $personalId,
@@ -274,6 +340,7 @@ class AsistenciaService
                 'dias_descanso' => $diasDescanso,
                 'dias_ausente' => $diasAusente,
                 'dias_extra' => $asistencias->where('es_extra', true)->count(),
+                'dias_cobertura' => $asistencias->where('es_cobertura', true)->count(),
                 'porcentaje_asistencia' => ($totalDias - $diasDescanso) > 0
                     ? round(($diasTrabajados / ($totalDias - $diasDescanso)) * 100, 2)
                     : 0,
@@ -281,10 +348,12 @@ class AsistenciaService
             'registros' => $asistencias->map(fn($a) => [
                 'fecha' => $a->fecha_asistencia->toDateString(),
                 'proyecto' => $a->asignacion?->proyecto?->nombre_proyecto
-                    ?? ($a->esAsistenciaDirecta() ? 'Sin asignación' : null),
+                    ?? $a->proyectoCobertura?->nombre_proyecto
+                    ?? ($a->esAsistenciaDirecta() ? ($a->es_cobertura ? 'Cobertura' : 'Sin asignación') : null),
                 'turno' => $a->asignacion?->turno?->nombre,
                 'estado' => $a->estado_dia,
                 'es_extra' => (bool) $a->es_extra,
+                'es_cobertura' => (bool) $a->es_cobertura,
                 'asignacion_id' => $a->personal_asignado_id,
                 'observaciones' => $a->observaciones,
             ]),
@@ -298,11 +367,11 @@ class AsistenciaService
     {
         $personal = Personal::findOrFail($personalId);
 
-        $asistencias = OperacionAsistencia::porPersonal($personalId)
+        $asistenciasPorDia = OperacionAsistencia::porPersonal($personalId)
             ->porRangoFechas($fechaInicio, $fechaFin)
-            ->with(['asignacion.proyecto', 'asignacion.turno'])
+            ->with(['asignacion.proyecto', 'asignacion.turno', 'proyectoCobertura'])
             ->get()
-            ->keyBy(fn (OperacionAsistencia $a) => $a->fecha_asistencia->format('Y-m-d'));
+            ->groupBy(fn (OperacionAsistencia $a) => $a->fecha_asistencia->format('Y-m-d'));
 
         $reemplazos = OperacionAsistencia::query()
             ->where('personal_reemplazo_id', $personalId)
@@ -327,12 +396,22 @@ class AsistenciaService
 
         while ($cursor->lte($fin)) {
             $fecha = $cursor->format('Y-m-d');
-            $asistencia = $asistencias->get($fecha);
+            $delDia = collect($asistenciasPorDia->get($fecha, []));
+            $cobertura = $delDia->firstWhere('es_cobertura', true);
+            $asistencia = $delDia->first(fn (OperacionAsistencia $a) => !$a->es_cobertura)
+                ?? $cobertura;
             $reemplazo = $reemplazos->get($fecha);
+
+            $diaBase = [
+                'fecha' => $fecha,
+                'dia_semana' => $cursor->copy()->locale('es')->dayName,
+                'cubrio' => null,
+            ];
 
             if ($asistencia) {
                 $estado = $asistencia->estado_dia;
                 $tipo = match ($estado) {
+                    'cobertura' => 'cobertura',
                     'descanso' => 'descanso',
                     'reemplazado' => 'reemplazado',
                     'ausente_justificado', 'ausente_injustificado', 'ausente_con_permiso' => 'falta',
@@ -340,46 +419,52 @@ class AsistenciaService
                     default => 'trabajo',
                 };
 
+                $cubrioInfo = $this->infoCobertura($cobertura, $reemplazo);
+                if ($cubrioInfo && $tipo === 'descanso') {
+                    $tipo = 'cobertura';
+                }
+
                 $calendario->push([
-                    'fecha' => $fecha,
-                    'dia_semana' => $cursor->copy()->locale('es')->dayName,
-                    'es_trabajo' => in_array($tipo, ['trabajo', 'reemplazado', 'extra'], true),
+                    ...$diaBase,
+                    'es_trabajo' => in_array($tipo, ['trabajo', 'reemplazado', 'extra', 'cobertura'], true),
                     'tipo' => $tipo,
                     'estado_asistencia' => $estado,
                     'registrado' => true,
-                    'origen' => $asistencia->esAsistenciaDirecta() ? 'sin_asignacion' : 'asistencia',
+                    'origen' => $asistencia->es_cobertura
+                        ? 'cobertura'
+                        : ($asistencia->esAsistenciaDirecta() ? 'sin_asignacion' : 'asistencia'),
                     'es_ausente' => (bool) $asistencia->es_ausente,
                     'es_descanso' => (bool) $asistencia->es_descanso,
                     'es_extra' => (bool) $asistencia->es_extra,
-                    'observaciones' => $asistencia->observaciones,
-                    'proyecto' => $asistencia->asignacion?->proyecto?->nombre_proyecto,
+                    'es_cobertura' => (bool) ($asistencia->es_cobertura || $cubrioInfo),
+                    'observaciones' => $cubrioInfo['observaciones'] ?? $asistencia->observaciones,
+                    'proyecto' => $cubrioInfo['proyecto']
+                        ?? $asistencia->asignacion?->proyecto?->nombre_proyecto
+                        ?? $asistencia->proyectoCobertura?->nombre_proyecto,
+                    'cubrio' => $cubrioInfo,
                 ]);
             } elseif ($reemplazo) {
-                $cubierto = $reemplazo->asignacion?->personal?->nombre_completo
-                    ?? 'otro agente';
-
+                $cubrioInfo = $this->infoCobertura(null, $reemplazo);
                 $calendario->push([
-                    'fecha' => $fecha,
-                    'dia_semana' => $cursor->copy()->locale('es')->dayName,
+                    ...$diaBase,
                     'es_trabajo' => true,
-                    'tipo' => 'trabajo',
-                    'estado_asistencia' => 'presente',
+                    'tipo' => 'cobertura',
+                    'estado_asistencia' => 'cobertura',
                     'registrado' => true,
                     'origen' => 'reemplazo',
                     'es_ausente' => false,
                     'es_descanso' => false,
-                    'es_extra' => false,
-                    'observaciones' => $reemplazo->motivo_reemplazo
-                        ? "Cubrió a {$cubierto}. {$reemplazo->motivo_reemplazo}"
-                        : "Cubrió a {$cubierto}",
-                    'proyecto' => $reemplazo->asignacion?->proyecto?->nombre_proyecto,
+                    'es_extra' => true,
+                    'es_cobertura' => true,
+                    'observaciones' => $cubrioInfo['observaciones'] ?? null,
+                    'proyecto' => $cubrioInfo['proyecto'] ?? null,
+                    'cubrio' => $cubrioInfo,
                 ]);
             } else {
                 $asignacionDia = $this->asignacionQueCubre($asignacionesPeriodo, $fecha, 0);
 
                 $calendario->push([
-                    'fecha' => $fecha,
-                    'dia_semana' => $cursor->copy()->locale('es')->dayName,
+                    ...$diaBase,
                     'es_trabajo' => false,
                     'tipo' => $asignacionDia ? 'sin_marcar' : 'sin_asignacion',
                     'estado_asistencia' => null,
@@ -389,6 +474,7 @@ class AsistenciaService
                     'es_ausente' => false,
                     'es_descanso' => false,
                     'es_extra' => false,
+                    'es_cobertura' => false,
                     'observaciones' => null,
                     'proyecto' => $asignacionDia?->proyecto?->nombre_proyecto,
                 ]);
@@ -407,9 +493,10 @@ class AsistenciaService
             'fecha_inicio_asignacion' => null,
             'sin_asignacion' => true,
             'resumen' => [
-                'dias_trabajados' => $calendario->whereIn('tipo', ['trabajo', 'extra'])->count(),
+                'dias_trabajados' => $calendario->whereIn('tipo', ['trabajo', 'extra', 'cobertura'])->count(),
                 'dias_extra' => $calendario->where('tipo', 'extra')->count(),
-                'dias_descanso' => $calendario->where('tipo', 'descanso')->count(),
+                'dias_cobertura' => $calendario->where('tipo', 'cobertura')->count(),
+                'dias_descanso' => $calendario->filter(fn ($d) => !empty($d['es_descanso']) || $d['tipo'] === 'descanso')->count(),
                 'dias_falta' => $calendario->where('tipo', 'falta')->count(),
                 'dias_sin_marcar' => $calendario->where('tipo', 'sin_marcar')->count(),
             ],
@@ -466,11 +553,26 @@ class AsistenciaService
         $calendario = $calendario->map(function (array $dia) use ($asistencias, $reemplazos, $asignaciones, $asignacionActualId) {
             $fecha = $dia['fecha'];
             $delDia = collect($asistencias->get($fecha, []));
+            $cobertura = $delDia->firstWhere('es_cobertura', true);
             $asistencia = $delDia->firstWhere('personal_asignado_id', $asignacionActualId)
-                ?? $delDia->first();
+                ?? $delDia->first(fn (OperacionAsistencia $a) => !$a->es_cobertura)
+                ?? $cobertura;
 
             if ($asistencia) {
-                return $this->diaDesdeAsistencia($dia, $asistencia, $asignacionActualId);
+                $base = $this->diaDesdeAsistencia($dia, $asistencia, $asignacionActualId);
+                $reemplazo = $reemplazos->get($fecha);
+                $info = $this->infoCobertura($cobertura, $reemplazo);
+                if ($info) {
+                    $base['tipo'] = $asistencia->es_descanso ? 'cobertura' : $base['tipo'];
+                    $base['es_cobertura'] = true;
+                    $base['es_trabajo'] = true;
+                    $base['observaciones'] = $info['observaciones'];
+                    $base['cubrio'] = $info;
+                    if ($info['proyecto']) {
+                        $base['proyecto'] = $info['proyecto'];
+                    }
+                }
+                return $base;
             }
 
             $reemplazo = $reemplazos->get($fecha);
@@ -480,14 +582,15 @@ class AsistenciaService
                 return [
                     ...$dia,
                     'es_trabajo' => true,
-                    'tipo' => 'trabajo',
-                    'estado_asistencia' => 'presente',
+                    'tipo' => 'cobertura',
+                    'estado_asistencia' => 'cobertura',
                     'registrado' => true,
                     'origen' => 'reemplazo',
                     'puesto_anterior' => (int) $reemplazo->personal_asignado_id !== $asignacionActualId,
                     'es_ausente' => false,
                     'es_descanso' => false,
-                    'es_extra' => false,
+                    'es_extra' => true,
+                    'es_cobertura' => true,
                     'observaciones' => $reemplazo->motivo_reemplazo
                         ? "Cubrió a {$cubierto}. {$reemplazo->motivo_reemplazo}"
                         : "Cubrió a {$cubierto}",
@@ -520,31 +623,34 @@ class AsistenciaService
     private function diaDesdeAsistencia(array $dia, OperacionAsistencia $asistencia, int $asignacionActualId): array
     {
         $estado = $asistencia->estado_dia;
-        $tipo = match ($estado) {
-            'descanso' => 'descanso',
-            'reemplazado' => 'reemplazado',
-            'ausente_justificado', 'ausente_injustificado', 'ausente_con_permiso' => 'falta',
-            'extra' => 'extra',
-            default => 'trabajo',
-        };
+                $tipo = match ($estado) {
+                    'cobertura' => 'cobertura',
+                    'descanso' => 'descanso',
+                    'reemplazado' => 'reemplazado',
+                    'ausente_justificado', 'ausente_injustificado', 'ausente_con_permiso' => 'falta',
+                    'extra' => 'extra',
+                    default => 'trabajo',
+                };
 
         $esOtra = $asistencia->personal_asignado_id
             && (int) $asistencia->personal_asignado_id !== $asignacionActualId;
 
         return [
             ...$dia,
-            'es_trabajo' => in_array($tipo, ['trabajo', 'reemplazado', 'extra'], true),
-            'tipo' => $tipo,
-            'estado_asistencia' => $estado,
-            'registrado' => true,
-            'origen' => $esOtra ? 'puesto_anterior' : ($asistencia->esAsistenciaDirecta() ? 'sin_asignacion' : 'asistencia'),
-            'puesto_anterior' => $esOtra,
-            'es_ausente' => (bool) $asistencia->es_ausente,
-            'es_descanso' => (bool) $asistencia->es_descanso,
-            'es_extra' => (bool) $asistencia->es_extra,
-            'observaciones' => $asistencia->observaciones,
-            'proyecto' => $asistencia->asignacion?->proyecto?->nombre_proyecto,
-        ];
+            'es_trabajo' => in_array($tipo, ['trabajo', 'reemplazado', 'extra', 'cobertura'], true),
+                'tipo' => $tipo,
+                'estado_asistencia' => $estado,
+                'registrado' => true,
+                'origen' => $esOtra ? 'puesto_anterior' : ($asistencia->esAsistenciaDirecta() ? 'sin_asignacion' : 'asistencia'),
+                'puesto_anterior' => $esOtra,
+                'es_ausente' => (bool) $asistencia->es_ausente,
+                'es_descanso' => (bool) $asistencia->es_descanso,
+                'es_extra' => (bool) $asistencia->es_extra,
+                'es_cobertura' => (bool) $asistencia->es_cobertura,
+                'observaciones' => $asistencia->observaciones,
+                'proyecto' => $asistencia->asignacion?->proyecto?->nombre_proyecto
+                    ?? $asistencia->proyectoCobertura?->nombre_proyecto,
+            ];
     }
 
     private function asignacionQueCubre(Collection $asignaciones, string $fecha, int $excluirId): ?OperacionPersonalAsignado
@@ -586,9 +692,14 @@ class AsistenciaService
             $datos['tipo_ausencia'] = null;
             $datos['tipo_inasistencia'] = null;
             $datos['permiso_ausencia_id'] = null;
-            $datos['fue_reemplazado'] = false;
-            $datos['personal_reemplazo_id'] = null;
-            $datos['motivo_reemplazo'] = null;
+            if (empty($datos['personal_reemplazo_id'])) {
+                $datos['fue_reemplazado'] = false;
+                $datos['personal_reemplazo_id'] = null;
+                $datos['motivo_reemplazo'] = null;
+            } else {
+                $datos['fue_reemplazado'] = true;
+                $datos['motivo_reemplazo'] = $datos['motivo_reemplazo'] ?: 'Cobertura';
+            }
 
             return $datos;
         }
@@ -601,7 +712,10 @@ class AsistenciaService
             $datos['hora_salida'] = null;
             $datos['llego_tarde'] = false;
             $datos['minutos_retraso'] = 0;
-            // No limpiar permiso_reposicion_id ni horas_reposicion (se preservan si vienen)
+            if (!empty($datos['personal_reemplazo_id'])) {
+                $datos['fue_reemplazado'] = true;
+                $datos['motivo_reemplazo'] = $datos['motivo_reemplazo'] ?: 'Cobertura';
+            }
 
             return $datos;
         }
@@ -630,7 +744,7 @@ class AsistenciaService
         }
 
         if (str_contains($mensaje, 'P0010')) {
-            return 'El personal de reemplazo ya tiene asignación activa.';
+            return 'El cubridor está de turno en su puesto. Solo puede cubrir si está de descanso o sin puesto.';
         }
         if (str_contains($mensaje, 'P0011')) {
             return 'La asignación no existe.';
@@ -661,5 +775,114 @@ class AsistenciaService
         }
 
         return 'Error al procesar la asistencia.';
+    }
+
+    /**
+     * Crea o quita la fila pagable del cubridor, sin tocar su descanso en el puesto titular.
+     */
+    private function sincronizarFilaCobertura(OperacionAsistencia $titular): void
+    {
+        if ($titular->es_cobertura) {
+            return;
+        }
+
+        $fecha = $titular->fecha_asistencia;
+
+        OperacionAsistencia::query()
+            ->where('es_cobertura', true)
+            ->where('asistencia_titular_id', $titular->id)
+            ->when($titular->personal_reemplazo_id, function ($q) use ($titular) {
+                $q->where('personal_id', '!=', $titular->personal_reemplazo_id);
+            })
+            ->get()
+            ->each(fn (OperacionAsistencia $row) => $row->delete());
+
+        if (!$titular->personal_reemplazo_id || (!$titular->es_descanso && !$titular->es_ausente)) {
+            OperacionAsistencia::query()
+                ->where('es_cobertura', true)
+                ->where('asistencia_titular_id', $titular->id)
+                ->get()
+                ->each(fn (OperacionAsistencia $row) => $row->delete());
+            return;
+        }
+
+        $puede = $this->puedeSerReemplazo(
+            (int) $titular->personal_reemplazo_id,
+            Carbon::parse($fecha)
+        );
+        if (empty($puede['puede'])) {
+            throw new \RuntimeException($puede['razon'] ?? 'El personal no puede cubrir este día.');
+        }
+
+        $titular->loadMissing(['asignacion.proyecto', 'asignacion.personal']);
+        $proyectoId = $titular->asignacion?->proyecto_id;
+        $nombreTitular = $titular->asignacion?->personal?->nombre_completo ?? 'titular';
+        $proyectoNombre = $titular->asignacion?->proyecto?->nombre_proyecto ?? 'otro proyecto';
+
+        $existente = OperacionAsistencia::query()
+            ->where('personal_id', $titular->personal_reemplazo_id)
+            ->whereNull('personal_asignado_id')
+            ->whereDate('fecha_asistencia', $fecha)
+            ->first();
+
+        if ($existente && !$existente->es_cobertura) {
+            throw new \RuntimeException('El cubridor ya tiene asistencia sin puesto ese día.');
+        }
+        if ($existente && $existente->es_cobertura && (int) $existente->asistencia_titular_id !== (int) $titular->id) {
+            throw new \RuntimeException('El cubridor ya cubrió otro puesto este día.');
+        }
+
+        OperacionAsistencia::crearOActualizarDirecta(
+            (int) $titular->personal_reemplazo_id,
+            $fecha,
+            [
+                'es_cobertura' => true,
+                'es_extra' => true,
+                'es_descanso' => false,
+                'es_ausente' => false,
+                'fue_reemplazado' => false,
+                'personal_reemplazo_id' => null,
+                'asistencia_titular_id' => $titular->id,
+                'proyecto_cobertura_id' => $proyectoId,
+                'observaciones' => "Cubrió a {$nombreTitular} en {$proyectoNombre}",
+            ],
+            $titular->registrado_por_user_id
+        );
+    }
+
+    public function coberturasDelDia(Carbon $fecha, array $personalIds): Collection
+    {
+        if ($personalIds === []) {
+            return collect();
+        }
+
+        return OperacionAsistencia::query()
+            ->where('es_cobertura', true)
+            ->whereDate('fecha_asistencia', $fecha)
+            ->whereIn('personal_id', $personalIds)
+            ->with(['proyectoCobertura:id,nombre_proyecto', 'asistenciaTitular.asignacion.personal:id,nombres,apellidos'])
+            ->get()
+            ->keyBy('personal_id');
+    }
+
+    private function infoCobertura(?OperacionAsistencia $cobertura, ?OperacionAsistencia $reemplazoFilaTitular): ?array
+    {
+        $fila = $cobertura ?: $reemplazoFilaTitular;
+        if (!$fila) {
+            return null;
+        }
+
+        $cubierto = $fila->asignacion?->personal?->nombre_completo
+            ?? $reemplazoFilaTitular?->asignacion?->personal?->nombre_completo
+            ?? 'otro agente';
+        $proyecto = $fila->proyectoCobertura?->nombre_proyecto
+            ?? $fila->asignacion?->proyecto?->nombre_proyecto
+            ?? $reemplazoFilaTitular?->asignacion?->proyecto?->nombre_proyecto;
+
+        return [
+            'proyecto' => $proyecto,
+            'titular' => $cubierto,
+            'observaciones' => "Cubrió a {$cubierto}" . ($proyecto ? " en {$proyecto}" : ''),
+        ];
     }
 }

@@ -24,7 +24,7 @@ class PlanillaExport implements FromArray, WithTitle, WithStyles, WithColumnWidt
     {
         // Cargar todas las relaciones necesarias
         $planilla->load([
-            'detalles.personal',
+            'detalles.personal' => fn ($q) => $q->withExists('entregasEquipoPendientes'),
             'detalles.proyecto',
             'creadoPor',
             'aprobadoPor',

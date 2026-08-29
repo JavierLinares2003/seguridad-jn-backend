@@ -121,10 +121,10 @@ class PlanillaController extends Controller
     public function show(int $id): JsonResponse
     {
         $planilla = Planilla::with([
-            'detalles.personal',
+            'detalles.personal' => fn ($q) => $q->withExists('entregasEquipoPendientes'),
             'detalles.proyecto',
             'detalles.planilla',
-            'personalSeleccionado',
+            'personalSeleccionado' => fn ($q) => $q->withExists('entregasEquipoPendientes'),
             'creadoPor',
             'aprobadoPor',
             'proyecto',
@@ -166,6 +166,7 @@ class PlanillaController extends Controller
                     'dias_trabajados'        => 0,
                     'dias_descanso'          => 0,
                     'dias_ausentes'          => 0,
+                    'dias_extra'             => 0,
                     'horas_trabajadas'       => 0,
                     'horas_por_turno'        => 0,
                     'pago_por_hora'          => 0,

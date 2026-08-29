@@ -16,7 +16,7 @@ class PrestamoService
      * @param int|null $userId Usuario que registra las cuotas
      * @return int Número de cuotas generadas
      */
-    public function generarCuotasAutomaticas(Prestamo $prestamo, ?int $userId = null): int
+    public function generarCuotasAutomaticas(Prestamo $prestamo, ?int $userId = null, ?array $montos = null): int
     {
         if ($prestamo->cuotas_totales <= 0) {
             return 0;
@@ -24,13 +24,28 @@ class PrestamoService
 
         $cuotasGeneradas = 0;
         $fechaPago = Carbon::parse($prestamo->fecha_primer_pago);
+        $n = (int) $prestamo->cuotas_totales;
+        $totalEsperado = round((float) $prestamo->monto_total * (1 + ((float) ($prestamo->tasa_interes ?? 0) / 100)), 2);
 
-        for ($i = 0; $i < $prestamo->cuotas_totales; $i++) {
+        if (is_array($montos) && count($montos) === $n) {
+            $suma = round(array_sum(array_map('floatval', $montos)), 2);
+            if (abs($suma - $totalEsperado) > 0.05) {
+                throw new \InvalidArgumentException('La suma de las cuotas debe coincidir con el total a pagar.');
+            }
+        } else {
+            $montos = null;
+        }
+
+        for ($i = 0; $i < $n; $i++) {
+            $monto = $montos
+                ? round((float) $montos[$i], 2)
+                : (float) $prestamo->monto_cuota;
+
             Transaccion::create([
                 'personal_id' => $prestamo->personal_id,
                 'tipo_transaccion' => 'abono_prestamo',
-                'monto' => $prestamo->monto_cuota,
-                'descripcion' => "Cuota " . ($i + 1) . " de " . $prestamo->cuotas_totales . " - Préstamo #" . $prestamo->id,
+                'monto' => $monto,
+                'descripcion' => "Cuota " . ($i + 1) . " de " . $n . " - Préstamo #" . $prestamo->id,
                 'fecha_transaccion' => $fechaPago->toDateString(),
                 'es_descuento' => true,
                 'estado_transaccion' => 'pendiente',
@@ -39,7 +54,6 @@ class PrestamoService
             ]);
 
             $cuotasGeneradas++;
-            // Siguiente mes
             $fechaPago->addMonth();
         }
 

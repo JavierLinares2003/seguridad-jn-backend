@@ -7,6 +7,7 @@ use App\Http\Requests\Operacion\RegistrarAsistenciaRequest;
 use App\Http\Requests\Operacion\UpdateAsistenciaRequest;
 use App\Models\Catalogos\MotivoAusencia;
 use App\Models\OperacionAsistencia;
+use App\Models\Personal;
 use App\Models\PersonalPermiso;
 use App\Models\Proyecto;
 use App\Services\Operacion\AsistenciaService;
@@ -368,9 +369,15 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 ->get()
                 ->keyBy('personal_asignado_id');
 
+            $coberturas = $this->asistenciaService->coberturasDelDia(
+                $fecha,
+                $asignaciones->pluck('personal_id')->all()
+            );
+
             // Combinar asignaciones con asistencias
-            $personal = $asignaciones->map(function ($asignacion) use ($asistencias) {
+            $personal = $asignaciones->map(function ($asignacion) use ($asistencias, $coberturas) {
                 $asistencia = $asistencias->get($asignacion->id);
+                $cubrio = $coberturas->get($asignacion->personal_id);
                 return [
                     'asignacion_id' => $asignacion->id,
                     'personal' => $asignacion->personal,
@@ -399,7 +406,14 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                             'saldo_pendiente'   => $asistencia->permisoReposicion->saldo_pendiente,
                         ] : null,
                         'observaciones' => $asistencia->observaciones,
-                    ] : ['id' => null, 'estado' => 'sin_registro'],
+                        'cubrio_en' => $cubrio ? [
+                            'proyecto' => $cubrio->proyectoCobertura?->nombre_proyecto,
+                            'titular' => $cubrio->asistenciaTitular?->asignacion?->personal?->nombre_completo,
+                        ] : null,
+                    ] : ['id' => null, 'estado' => 'sin_registro', 'cubrio_en' => $cubrio ? [
+                        'proyecto' => $cubrio->proyectoCobertura?->nombre_proyecto,
+                        'titular' => $cubrio->asistenciaTitular?->asignacion?->personal?->nombre_completo,
+                    ] : null],
                 ];
             });
 
@@ -496,8 +510,18 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 ->get()
                 ->keyBy('personal_asignado_id');
 
-            $personal = $asignaciones->map(function ($asignacion) use ($asistencias) {
+            $coberturas = $this->asistenciaService->coberturasDelDia(
+                $fecha,
+                $asignaciones->pluck('personal_id')->all()
+            );
+
+            $personal = $asignaciones->map(function ($asignacion) use ($asistencias, $coberturas) {
                 $asistencia = $asistencias->get($asignacion->id);
+                $cubrio = $coberturas->get($asignacion->personal_id);
+                $cubrioEn = $cubrio ? [
+                    'proyecto' => $cubrio->proyectoCobertura?->nombre_proyecto,
+                    'titular' => $cubrio->asistenciaTitular?->asignacion?->personal?->nombre_completo,
+                ] : null;
                 return [
                     'asignacion_id' => $asignacion->id,
                     'personal'      => $asignacion->personal,
@@ -526,7 +550,8 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                             'saldo_pendiente'   => $asistencia->permisoReposicion->saldo_pendiente,
                         ] : null,
                         'observaciones'        => $asistencia->observaciones,
-                    ] : ['id' => null, 'estado' => 'sin_registro'],
+                        'cubrio_en'            => $cubrioEn,
+                    ] : ['id' => null, 'estado' => 'sin_registro', 'cubrio_en' => $cubrioEn],
                 ];
             });
 
@@ -1014,20 +1039,35 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
     {
         $request->validate([
             'fecha' => 'required|date',
+            'proyecto_id' => 'nullable|integer',
+            'excluir_personal_id' => 'nullable|integer',
         ]);
 
         $fecha = Carbon::parse($request->input('fecha'));
         $personal = $this->asistenciaService->getPersonalDisponibleParaReemplazo(
             $fecha,
-            $request->input('proyecto_id')
+            $request->input('proyecto_id') ? (int) $request->input('proyecto_id') : null,
+            $request->input('excluir_personal_id') ? (int) $request->input('excluir_personal_id') : null
         );
+
+        $data = $personal->map(fn (Personal $p) => [
+            'id' => $p->id,
+            'nombres' => $p->nombres,
+            'apellidos' => $p->apellidos,
+            'dpi' => $p->dpi,
+            'estado' => $p->estado,
+            'origen_cobertura' => $p->origen_cobertura ?? 'disponible',
+            'proyecto_origen' => $p->proyecto_origen ?? null,
+            'puesto_origen' => $p->puesto_origen ?? null,
+            'departamento' => $p->departamento,
+        ]);
 
         return response()->json([
             'success' => true,
-            'data' => $personal,
+            'data' => $data,
             'meta' => [
                 'fecha' => $fecha->toDateString(),
-                'total_disponible' => $personal->count(),
+                'total_disponible' => $data->count(),
             ],
         ]);
     }
@@ -1385,7 +1425,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         }
 
         if (str_contains($mensaje, 'P0010')) {
-            return 'El personal de reemplazo ya tiene asignación activa.';
+            return 'El cubridor está de turno en su puesto. Solo puede cubrir si está de descanso o sin puesto.';
         }
         if (str_contains($mensaje, 'P0014')) {
             return 'No puede registrar salida sin entrada.';

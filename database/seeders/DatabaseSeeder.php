@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
 
         // Seed roles and permissions
         $this->call(RolesAndPermissionsSeeder::class);
+        $this->call(BodegaSeeder::class);
 
         // Create admin user
         $admin = User::firstOrCreate(

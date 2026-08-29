@@ -29,6 +29,9 @@ class OperacionAsistencia extends Model
         'minutos_retraso',
         'es_descanso',
         'es_extra',
+        'es_cobertura',
+        'asistencia_titular_id',
+        'proyecto_cobertura_id',
         'fue_reemplazado',
         'personal_reemplazo_id',
         'motivo_reemplazo',
@@ -59,6 +62,7 @@ class OperacionAsistencia extends Model
             'minutos_retraso' => 'integer',
             'es_descanso' => 'boolean',
             'es_extra' => 'boolean',
+            'es_cobertura' => 'boolean',
             'fue_reemplazado' => 'boolean',
             'es_ausente' => 'boolean',
             'procesado_planilla' => 'boolean',
@@ -98,6 +102,10 @@ class OperacionAsistencia extends Model
     {
         return Attribute::make(
             get: function () {
+                if ($this->es_cobertura) {
+                    return 'cobertura';
+                }
+
                 if ($this->es_descanso) {
                     return 'descanso';
                 }
@@ -152,6 +160,16 @@ class OperacionAsistencia extends Model
     public function personalReemplazo(): BelongsTo
     {
         return $this->belongsTo(Personal::class, 'personal_reemplazo_id');
+    }
+
+    public function asistenciaTitular(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'asistencia_titular_id');
+    }
+
+    public function proyectoCobertura(): BelongsTo
+    {
+        return $this->belongsTo(Proyecto::class, 'proyecto_cobertura_id');
     }
 
     public function registradoPor(): BelongsTo

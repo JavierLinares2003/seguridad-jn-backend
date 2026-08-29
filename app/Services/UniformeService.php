@@ -193,12 +193,26 @@ class UniformeService
                 $id = (int) ($item['id'] ?? 0);
                 $fecha = $item['fecha_transaccion'] ?? null;
 
-                if (!$id || !$fecha || !$pendientes->has($id)) {
+                if (!$id || !$pendientes->has($id)) {
                     continue;
                 }
 
                 $transaccion = $pendientes->get($id);
-                $transaccion->update(['fecha_transaccion' => $fecha]);
+                $payload = [];
+                if ($fecha) {
+                    $payload['fecha_transaccion'] = $fecha;
+                }
+                if (array_key_exists('monto', $item) && $item['monto'] !== null && $item['monto'] !== '') {
+                    $monto = round((float) $item['monto'], 2);
+                    if ($monto < 0.01) {
+                        throw new \InvalidArgumentException('El monto de cada cuota debe ser mayor a 0.');
+                    }
+                    $payload['monto'] = $monto;
+                }
+                if ($payload === []) {
+                    continue;
+                }
+                $transaccion->update($payload);
                 $actualizadas->push($transaccion->fresh());
             }
 
@@ -206,8 +220,35 @@ class UniformeService
                 throw new \InvalidArgumentException('No se actualizó ninguna cuota pendiente.');
             }
 
-            return $actualizadas;
+            $this->recalcularSaldosGrupo($grupoUniforme);
+
+            return $actualizadas->map->fresh();
         });
+    }
+
+    /**
+     * Recalcula saldo_despues de todas las cuotas del grupo (ordenadas).
+     */
+    public function recalcularSaldosGrupo(string $grupoUniforme): void
+    {
+        $cuotas = Transaccion::where('grupo_uniforme', $grupoUniforme)
+            ->where('tipo_transaccion', 'uniforme')
+            ->orderBy('numero_cuota')
+            ->get();
+
+        if ($cuotas->isEmpty()) {
+            return;
+        }
+
+        $montoTotal = (float) $cuotas->sum('monto');
+        $acumulado = 0.0;
+
+        foreach ($cuotas as $cuota) {
+            $acumulado += (float) $cuota->monto;
+            $cuota->update([
+                'saldo_despues' => round($montoTotal - $acumulado, 2),
+            ]);
+        }
     }
 
     /**

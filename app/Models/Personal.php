@@ -34,6 +34,7 @@ class Personal extends Model
         'nit',
         'email',
         'telefono',
+        'telefono_whatsapp',
         'numero_igss',
         'fecha_nacimiento',
         'estado_civil_id',
@@ -60,6 +61,9 @@ class Personal extends Model
         'nivel_estudio_id',
         'departamento_id',
         'fecha_inicio',
+        'fecha_ingreso_original',
+        'fecha_reingreso',
+        'observacion_recontratacion',
         'observaciones',
         'vacaciones_saldo_inicial',
         'foto_perfil',
@@ -71,6 +75,8 @@ class Personal extends Model
         return [
             'fecha_nacimiento' => 'date',
             'fecha_inicio' => 'date',
+            'fecha_ingreso_original' => 'date',
+            'fecha_reingreso' => 'date',
             'altura' => 'decimal:2',
             'peso' => 'decimal:2',
             'salario_base' => 'decimal:2',
@@ -85,7 +91,7 @@ class Personal extends Model
         ];
     }
 
-    protected $appends = ['nombre_completo', 'edad', 'iniciales', 'foto_url'];
+    protected $appends = ['nombre_completo', 'edad', 'iniciales', 'foto_url', 'pendiente_liquidacion'];
 
     /*
     |--------------------------------------------------------------------------
@@ -225,6 +231,40 @@ class Personal extends Model
         return $this->hasMany(PersonalPermiso::class, 'personal_id');
     }
 
+    public function talla(): HasOne
+    {
+        return $this->hasOne(PersonalTalla::class, 'personal_id');
+    }
+
+    public function bodegaEntregas(): HasMany
+    {
+        return $this->hasMany(BodegaEntrega::class, 'personal_id');
+    }
+
+    public function entregasEquipoPendientes(): HasMany
+    {
+        return $this->bodegaEntregas()
+            ->whereIn('tipo', ['kit', 'reposicion'])
+            ->whereNull('devuelta_at');
+    }
+
+    public function getPendienteLiquidacionAttribute(): bool
+    {
+        if (!in_array($this->estado, ['suspendido', 'no_contratar'], true)) {
+            return false;
+        }
+
+        if (array_key_exists('entregas_equipo_pendientes_exists', $this->attributes)) {
+            return (bool) $this->attributes['entregas_equipo_pendientes_exists'];
+        }
+
+        if ($this->relationLoaded('entregasEquipoPendientes')) {
+            return $this->entregasEquipoPendientes->isNotEmpty();
+        }
+
+        return $this->entregasEquipoPendientes()->exists();
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Scopes
@@ -310,6 +350,10 @@ class Personal extends Model
 
         if ($estado === 'activo') {
             return $query->whereIn('estado', ['activo', 'extrero']);
+        }
+
+        if ($estado === 'bajas') {
+            return $query->whereIn('estado', ['suspendido', 'no_contratar', 'inactivo']);
         }
 
         return $query->where('estado', $estado);
