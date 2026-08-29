@@ -670,6 +670,10 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.bodega.armas.show');
             Route::put('/armas/{id}', [\App\Http\Controllers\Api\V1\BodegaArmaController::class, 'update'])
                 ->name('api.v1.bodega.armas.update');
+            Route::post('/armas/{id}/asignar-proyecto', [\App\Http\Controllers\Api\V1\BodegaArmaController::class, 'asignarProyecto'])
+                ->name('api.v1.bodega.armas.asignar-proyecto');
+            Route::post('/armas/{id}/devolver-bodega', [\App\Http\Controllers\Api\V1\BodegaArmaController::class, 'devolverBodega'])
+                ->name('api.v1.bodega.armas.devolver-bodega');
 
             Route::get('/proveedores', [\App\Http\Controllers\Api\V1\BodegaController::class, 'proveedores'])
                 ->name('api.v1.bodega.proveedores.index');

@@ -46,11 +46,5 @@ class BodegaSeeder extends Seeder
                 array_merge($cat, ['activo' => true])
             );
         }
-
-        // Cargar inventario desde Excel (o demo mínimo si no hay archivo)
-        $this->call(BodegaImportExcelSeeder::class);
-        $this->call(BodegaProveedoresSeeder::class);
-        $this->call(BodegaKitsYLiquidacionSeeder::class);
-        $this->call(BodegaArmasSeeder::class);
     }
 }

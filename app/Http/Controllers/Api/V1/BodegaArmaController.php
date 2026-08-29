@@ -18,8 +18,9 @@ class BodegaArmaController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:view-bodega', only: ['index', 'catalogo', 'show']),
+            new Middleware('permission:view-bodega|manage-proyectos-inventario|view-proyectos', only: ['index', 'catalogo', 'show']),
             new Middleware('permission:manage-bodega', only: ['store', 'update']),
+            new Middleware('permission:manage-bodega|manage-proyectos-inventario', only: ['asignarProyecto', 'devolverBodega']),
         ];
     }
 
@@ -60,6 +61,10 @@ class BodegaArmaController extends Controller implements HasMiddleware
 
         if ($request->filled('proyecto_id')) {
             $query->where('proyecto_id', $request->input('proyecto_id'));
+        }
+
+        if ($request->boolean('disponibles')) {
+            $query->where('estado', 'en_bodega')->whereNull('proyecto_id');
         }
 
         if ($request->boolean('solo_vencidas')) {
@@ -130,6 +135,59 @@ class BodegaArmaController extends Controller implements HasMiddleware
             'success' => true,
             'message' => 'Arma actualizada.',
             'data' => $arma,
+        ]);
+    }
+
+    public function asignarProyecto(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate([
+            'proyecto_id' => ['required', 'exists:proyectos,id'],
+            'responsable_nombre' => ['nullable', 'string', 'max:150'],
+            'personal_id' => ['nullable', 'exists:personal,id'],
+        ]);
+
+        $arma = BodegaArma::findOrFail($id);
+        if ($arma->estado === 'baja') {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se puede cargar un arma dada de baja.',
+            ], 422);
+        }
+
+        if ($arma->proyecto_id && (int) $arma->proyecto_id !== (int) $data['proyecto_id']) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Esa arma ya está cargada en otro proyecto. Descárgala primero.',
+            ], 422);
+        }
+
+        $arma->update([
+            'proyecto_id' => $data['proyecto_id'],
+            'personal_id' => $data['personal_id'] ?? $arma->personal_id,
+            'responsable_nombre' => $data['responsable_nombre'] ?? $arma->responsable_nombre,
+            'estado' => 'asignada',
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Arma cargada al inventario del proyecto.',
+            'data' => $arma->fresh(['proyecto:id,nombre_proyecto,correlativo', 'personal:id,nombres,apellidos']),
+        ]);
+    }
+
+    public function devolverBodega(int $id): JsonResponse
+    {
+        $arma = BodegaArma::findOrFail($id);
+        $arma->update([
+            'proyecto_id' => null,
+            'personal_id' => null,
+            'estado' => 'en_bodega',
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Arma descargada. Volvió a bodega.',
+            'data' => $arma->fresh(),
         ]);
     }
 
