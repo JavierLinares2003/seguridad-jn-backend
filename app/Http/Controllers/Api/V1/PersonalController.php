@@ -607,6 +607,13 @@ class PersonalController extends Controller
     private function payloadPersonal(array $validated): array
     {
         unset($validated['tallas'], $validated['direccion'], $validated['referencias_laborales'], $validated['redes_sociales'], $validated['familiares']);
+
+        foreach (['fecha_inicio', 'fecha_nacimiento', 'fecha_ingreso_original', 'fecha_reingreso'] as $campo) {
+            if (!empty($validated[$campo]) && is_string($validated[$campo])) {
+                $validated[$campo] = substr($validated[$campo], 0, 10);
+            }
+        }
+
         return $validated;
     }
 
