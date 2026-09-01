@@ -21,7 +21,7 @@
         @endif
         @if($personal->sexo)
         <div class="info-row">
-            <div class="info-label">Sexo:</div>
+            <div class="info-label">Género:</div>
             <div class="info-value">{{ $personal->sexo->nombre }}</div>
         </div>
         @endif

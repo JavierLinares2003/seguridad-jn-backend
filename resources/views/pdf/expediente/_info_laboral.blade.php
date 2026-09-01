@@ -27,12 +27,6 @@
             <div class="info-value">{{ $personal->fecha_inicio->format('d/m/Y') }}</div>
         </div>
         @endif
-        @if($personal->tipoContratacion)
-        <div class="info-row">
-            <div class="info-label">Tipo de Contratación:</div>
-            <div class="info-value">{{ $personal->tipoContratacion->nombre }}</div>
-        </div>
-        @endif
 
         @if($personal->tipoPago)
         <div class="info-row">
