@@ -113,6 +113,12 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
 
         // Verificar requisitos del puesto
         $personal = Personal::findOrFail($validated['personal_id']);
+        if ($personal->es_administrativo) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El personal administrativo no se asigna a puestos de campo.',
+            ], 422);
+        }
         $requisitos = ['cumple' => true, 'errores' => []];
         
         if (isset($validated['configuracion_puesto_id'])) {
@@ -194,6 +200,12 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
 
         // El personal debe tener estado 'extrero'
         $personal = Personal::findOrFail($validated['personal_id']);
+        if ($personal->es_administrativo) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El personal administrativo no se asigna a puestos de campo.',
+            ], 422);
+        }
         if ($personal->estado !== 'extrero') {
             return response()->json([
                 'success' => false,

@@ -472,6 +472,9 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.operaciones.asistencia.departamentos-disponibles');
 
             // Consultas con sub-rutas
+            Route::get('/asistencia/administrativa/{fecha}', [OperacionAsistenciaController::class, 'administrativaPorFecha'])
+                ->name('api.v1.operaciones.asistencia.administrativa');
+
             Route::get('/asistencia/fecha/{fecha}', [OperacionAsistenciaController::class, 'porFecha'])
                 ->name('api.v1.operaciones.asistencia.por-fecha');
 

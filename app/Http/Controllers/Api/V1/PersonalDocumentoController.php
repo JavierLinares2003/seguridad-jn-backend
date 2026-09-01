@@ -6,7 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Personal\DocumentoRequest;
 use App\Models\Personal;
 use App\Models\PersonalDocumento;
+use App\Support\PersonalAdministrativoGuard;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 
 class PersonalDocumentoController extends Controller
@@ -16,6 +19,8 @@ class PersonalDocumentoController extends Controller
      */
     public function index(Personal $personal): JsonResponse
     {
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         $documentos = $personal->documentos()
             ->with(['tipoDocumento', 'subidoPor:id,name'])
             ->orderBy('fecha_subida', 'desc')
@@ -33,6 +38,8 @@ class PersonalDocumentoController extends Controller
      */
     public function store(DocumentoRequest $request, Personal $personal): JsonResponse
     {
+        PersonalAdministrativoGuard::abortSiNoPuedeEditar($request->user(), $personal);
+
         $archivo = $request->file('archivo');
         $extension = strtolower($archivo->getClientOriginalExtension());
         $nombreOriginal = $archivo->getClientOriginalName();
@@ -78,7 +85,7 @@ class PersonalDocumentoController extends Controller
             'tamanio_kb' => $tamanioKb,
             'fecha_vencimiento' => $request->fecha_vencimiento,
             'fecha_subida' => now(),
-            'subido_por_user_id' => auth()->id(),
+            'subido_por_user_id' => Auth::id(),
             'estado_documento' => $estado,
             'dias_alerta_vencimiento' => $request->dias_alerta_vencimiento ?? 30,
         ]);
@@ -97,6 +104,8 @@ class PersonalDocumentoController extends Controller
      */
     public function show(Personal $personal, PersonalDocumento $documento): JsonResponse
     {
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         // Verificar que el documento pertenece al personal
         if ($documento->personal_id !== $personal->id) {
             return response()->json([
@@ -118,6 +127,8 @@ class PersonalDocumentoController extends Controller
      */
     public function download(Personal $personal, PersonalDocumento $documento)
     {
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         // Verificar que el documento pertenece al personal
         if ($documento->personal_id !== $personal->id) {
             return response()->json([
@@ -134,7 +145,7 @@ class PersonalDocumentoController extends Controller
             ], 404);
         }
 
-        return Storage::disk('personal_documentos')->download(
+        return $this->documentosDisk()->download(
             $documento->ruta_archivo,
             $documento->nombre_archivo_original
         );
@@ -145,6 +156,8 @@ class PersonalDocumentoController extends Controller
      */
     public function destroy(Personal $personal, PersonalDocumento $documento): JsonResponse
     {
+        PersonalAdministrativoGuard::abortSiNoPuedeEditar(request()->user(), $personal);
+
         // Verificar que el documento pertenece al personal
         if ($documento->personal_id !== $personal->id) {
             return response()->json([
@@ -236,6 +249,8 @@ class PersonalDocumentoController extends Controller
      */
     public function preview(Personal $personal, PersonalDocumento $documento)
     {
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         // Verificar que el documento pertenece al personal
         if ($documento->personal_id !== $personal->id) {
             return response()->json([
@@ -252,14 +267,22 @@ class PersonalDocumentoController extends Controller
             ], 404);
         }
 
-        // Obtener el contenido del archivo
-        $file = Storage::disk('personal_documentos')->get($documento->ruta_archivo);
-        $mimeType = Storage::disk('personal_documentos')->mimeType($documento->ruta_archivo);
+        $disk = $this->documentosDisk();
+        $file = $disk->get($documento->ruta_archivo);
+        $mimeType = $disk->mimeType($documento->ruta_archivo) ?: 'application/octet-stream';
 
         // Retornar el archivo con headers para vista inline
         return response($file, 200)
             ->header('Content-Type', $mimeType)
             ->header('Content-Disposition', 'inline; filename="' . $documento->nombre_archivo_original . '"');
+    }
+
+    private function documentosDisk(): FilesystemAdapter
+    {
+        /** @var FilesystemAdapter $disk */
+        $disk = Storage::disk('personal_documentos');
+
+        return $disk;
     }
 
     /**

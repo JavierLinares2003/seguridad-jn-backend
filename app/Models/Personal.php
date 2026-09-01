@@ -60,6 +60,8 @@ class Personal extends Model
         'sexo_id',
         'nivel_estudio_id',
         'departamento_id',
+        'es_administrativo',
+        'vive_en_cuadra',
         'fecha_inicio',
         'fecha_ingreso_original',
         'fecha_reingreso',
@@ -77,6 +79,8 @@ class Personal extends Model
             'fecha_inicio' => 'date',
             'fecha_ingreso_original' => 'date',
             'fecha_reingreso' => 'date',
+            'es_administrativo' => 'boolean',
+            'vive_en_cuadra' => 'boolean',
             'altura' => 'decimal:2',
             'peso' => 'decimal:2',
             'salario_base' => 'decimal:2',
@@ -326,6 +330,16 @@ class Personal extends Model
         }
 
         return $query->where('departamento_id', $departamentoId);
+    }
+
+    public function scopeOperativo($query)
+    {
+        return $query->where('es_administrativo', false);
+    }
+
+    public function scopeAdministrativo($query)
+    {
+        return $query->where('es_administrativo', true);
     }
 
     public function scopeByDepartamentoNombre($query, ?string $nombre)

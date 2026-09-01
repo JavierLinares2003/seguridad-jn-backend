@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Support\PersonalAdministrativoGuard;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -9,7 +10,21 @@ class PersonalResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $verSensible = true;
+        $user = $request->user();
+
+        if ($request->boolean('directorio')) {
+            return $this->toDirectorioArray();
+        }
+
+        if ($this->es_administrativo && !PersonalAdministrativoGuard::tiene($user, 'view-personal-administrativo')) {
+            if (PersonalAdministrativoGuard::puedeVerNomina($user, $this->resource)) {
+                return $this->toNominaArray();
+            }
+
+            return $this->toDirectorioArray();
+        }
+
+        $verSensible = PersonalAdministrativoGuard::tiene($user, 'view-personal-sensible');
 
         return [
             // ── Información general (visible para todos los roles) ──────────
@@ -25,6 +40,9 @@ class PersonalResource extends JsonResource
             'foto_perfil'    => $this->foto_perfil,
             'estado'         => $this->estado,
             'pendiente_liquidacion' => (bool) $this->pendiente_liquidacion,
+            'es_administrativo' => (bool) $this->es_administrativo,
+            'vive_en_cuadra' => (bool) $this->vive_en_cuadra,
+            'alcance' => 'completo',
             'puesto'         => $this->puesto,
             'fecha_inicio'   => $this->fecha_inicio?->format('Y-m-d'),
             'fecha_ingreso_original' => $this->fecha_ingreso_original?->format('Y-m-d')
@@ -105,6 +123,43 @@ class PersonalResource extends JsonResource
             // Timestamps
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
             'updated_at' => $this->updated_at?->format('Y-m-d H:i:s'),
+        ];
+    }
+
+    private function toDirectorioArray(): array
+    {
+        return [
+            'id' => $this->id,
+            'nombres' => $this->nombres,
+            'apellidos' => $this->apellidos,
+            'nombre_completo' => $this->nombre_completo,
+            'puesto' => $this->puesto,
+            'estado' => $this->estado,
+            'es_administrativo' => (bool) $this->es_administrativo,
+            'alcance' => 'directorio',
+        ];
+    }
+
+    private function toNominaArray(): array
+    {
+        return [
+            'id' => $this->id,
+            'nombres' => $this->nombres,
+            'apellidos' => $this->apellidos,
+            'nombre_completo' => $this->nombre_completo,
+            'puesto' => $this->puesto,
+            'estado' => $this->estado,
+            'es_administrativo' => true,
+            'alcance' => 'nomina',
+            'salario_base' => $this->salario_base,
+            'tipo_pago' => $this->whenLoaded('tipoPago', fn () => [
+                'id' => $this->tipoPago->id,
+                'nombre' => $this->tipoPago->nombre,
+            ]),
+            'banco' => $this->banco,
+            'tipo_cuenta' => $this->tipo_cuenta,
+            'numero_cuenta' => $this->numero_cuenta,
+            'nombre_cuenta' => $this->nombre_cuenta,
         ];
     }
 }

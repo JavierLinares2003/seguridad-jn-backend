@@ -86,6 +86,8 @@ class UpdatePersonalRequest extends FormRequest
             'puesto' => ['sometimes', 'required', 'string', 'max:100'],
             'nivel_estudio_id' => ['nullable', 'exists:niveles_estudio,id'],
             'departamento_id' => ['nullable', 'exists:departamentos,id'],
+            'es_administrativo' => ['nullable', 'boolean'],
+            'vive_en_cuadra' => ['nullable', 'boolean'],
             'fecha_inicio' => ['sometimes', 'nullable', 'date'],
 
             // Información bancaria (requerida si tipo de pago es transferencia o depósito)

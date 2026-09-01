@@ -232,6 +232,7 @@ class AsistenciaService
             ->all();
 
         $candidatos = Personal::query()
+            ->operativo()
             ->whereIn('estado', ['activo', 'extrero'])
             ->when($excluirPersonalId, fn ($q) => $q->where('id', '!=', $excluirPersonalId))
             ->with(['sexo', 'departamento'])
@@ -281,6 +282,10 @@ class AsistenciaService
 
         if (!in_array($personal->estado, ['activo', 'extrero'], true)) {
             return ['puede' => false, 'razon' => 'El personal no está activo.'];
+        }
+
+        if ($personal->es_administrativo) {
+            return ['puede' => false, 'razon' => 'El personal administrativo no cubre asistencia de campo.'];
         }
 
         $asignacion = OperacionPersonalAsignado::query()
@@ -462,11 +467,14 @@ class AsistenciaService
                 ]);
             } else {
                 $asignacionDia = $this->asignacionQueCubre($asignacionesPeriodo, $fecha, 0);
+                $tipoVacio = $personal->es_administrativo
+                    ? 'sin_marcar'
+                    : ($asignacionDia ? 'sin_marcar' : 'sin_asignacion');
 
                 $calendario->push([
                     ...$diaBase,
                     'es_trabajo' => false,
-                    'tipo' => $asignacionDia ? 'sin_marcar' : 'sin_asignacion',
+                    'tipo' => $tipoVacio,
                     'estado_asistencia' => null,
                     'registrado' => false,
                     'origen' => $asignacionDia ? 'puesto_anterior' : 'pendiente',

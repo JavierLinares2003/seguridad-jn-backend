@@ -17,14 +17,18 @@ use App\Http\Resources\PersonalReferenciaLaboralResource;
 use App\Http\Resources\PersonalRedSocialResource;
 use App\Http\Resources\PersonalResource;
 use App\Models\Personal;
-use App\Models\PersonalDireccion;
 use App\Models\PersonalFamiliar;
 use App\Models\PersonalReferenciaLaboral;
 use App\Models\PersonalRedSocial;
+use App\Support\PersonalAdministrativoGuard;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Barryvdh\DomPDF\PDF as DomPdfDocument;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class PersonalController extends Controller
@@ -51,6 +55,19 @@ class PersonalController extends Controller
             ->byDepartamento($request->input('departamento_id'))
             ->byDepartamentoNombre($request->input('departamento_nombre'))
             ->byEstado($request->input('estado'));
+
+        $user = $request->user();
+        if ($request->boolean('directorio')) {
+            if (
+                !PersonalAdministrativoGuard::tiene($user, 'view-bodega')
+                && !PersonalAdministrativoGuard::tiene($user, 'view-planillas')
+                && !PersonalAdministrativoGuard::tiene($user, 'view-personal')
+            ) {
+                abort(403, 'No autorizado.');
+            }
+        } elseif (!PersonalAdministrativoGuard::tiene($user, 'view-personal-administrativo')) {
+            $query->operativo();
+        }
 
         if ($request->boolean('sin_asignacion')) {
             $query->whereDoesntHave('asignaciones', function ($q) {
@@ -86,19 +103,23 @@ class PersonalController extends Controller
      */
     public function store(StorePersonalRequest $request): JsonResponse
     {
+        $payload = $this->payloadPersonal($request->validated());
+        if (!empty($payload['es_administrativo']) && !PersonalAdministrativoGuard::tiene($request->user(), 'manage-personal-administrativo')) {
+            abort(403, 'Solo gerencia y recursos humanos pueden registrar personal administrativo.');
+        }
+
         try {
             DB::beginTransaction();
 
-            $payload = $this->payloadPersonal($request->validated());
             if (empty($payload['fecha_ingreso_original']) && !empty($payload['fecha_inicio'])) {
                 $payload['fecha_ingreso_original'] = $payload['fecha_inicio'];
             }
             $personal = Personal::create($payload);
             $this->syncTallas($personal, $request->input('tallas'));
 
-            // Crear dirección si se envió
-            if ($request->has('direccion')) {
-                $personal->direccion()->create($request->input('direccion'));
+            $direccion = $request->input('direccion');
+            if (is_array($direccion) && $direccion !== []) {
+                $personal->direccion()->create($direccion);
             }
 
             // Crear referencias laborales
@@ -162,7 +183,7 @@ class PersonalController extends Controller
      *
      * GET /api/v1/personal/{id}
      */
-    public function show(int $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
         $personal = Personal::with([
             'estadoCivil',
@@ -192,6 +213,13 @@ class PersonalController extends Controller
             ], 404);
         }
 
+        $user = $request->user();
+        if ($personal->es_administrativo && !PersonalAdministrativoGuard::puedeVerExpediente($user, $personal)) {
+            if (!PersonalAdministrativoGuard::puedeVerNomina($user, $personal)) {
+                abort(403, 'El expediente de personal administrativo solo lo ven gerencia y recursos humanos.');
+            }
+        }
+
         return response()->json([
             'success' => true,
             'data' => new PersonalResource($personal),
@@ -203,7 +231,7 @@ class PersonalController extends Controller
      *
      * GET /api/v1/personal/{id}/cv
      */
-    public function generarCV(int $id)
+    public function generarCV(Request $request, int $id)
     {
         $personal = Personal::with([
             'estadoCivil',
@@ -224,12 +252,14 @@ class PersonalController extends Controller
             abort(404, 'Personal no encontrado.');
         }
 
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente($request->user(), $personal);
+
         // Filter documents
         $documentos = $personal->documentos;
         
         $fotoPrincipal = $documentos->first(function ($doc) {
             if (!$doc->tipoDocumento) return false;
-            $nombre = \Illuminate\Support\Str::slug($doc->tipoDocumento->nombre);
+            $nombre = Str::slug($doc->tipoDocumento->nombre);
             // Check for variations of "Foto de Perfil"
             return str_contains($nombre, 'foto') && str_contains($nombre, 'perfil');
         });
@@ -237,7 +267,7 @@ class PersonalController extends Controller
         // Fallback: try to find any document that looks like a profile picture
         if (!$fotoPrincipal) {
              $fotoPrincipal = $documentos->first(function ($doc) {
-                return \Illuminate\Support\Str::contains(strtolower($doc->nombre_documento), ['foto', 'perfil']);
+                return Str::contains(strtolower($doc->nombre_documento), ['foto', 'perfil']);
             });
         }
 
@@ -245,7 +275,7 @@ class PersonalController extends Controller
             if ($fotoPrincipal && $doc->id === $fotoPrincipal->id) return false;
             
             if ($doc->tipoDocumento) {
-                $nombre = \Illuminate\Support\Str::slug($doc->tipoDocumento->nombre);
+                $nombre = Str::slug($doc->tipoDocumento->nombre);
                 if ($nombre === 'fotografia' || str_contains($nombre, 'fotografia')) return true;
             }
             
@@ -253,7 +283,7 @@ class PersonalController extends Controller
         });
 
         // Log de datos que se envían a la vista del CV
-        \Illuminate\Support\Facades\Log::info('Generando CV para personal', [
+        Log::info('Generando CV para personal', [
             'personal_id' => $personal->id,
             'nombres' => $personal->nombres,
             'apellidos' => $personal->apellidos,
@@ -271,7 +301,8 @@ class PersonalController extends Controller
             'fotografias_count' => $fotografias->count(),
         ]);
 
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.cv', [
+        /** @var DomPdfDocument $pdf */
+        $pdf = Pdf::loadView('pdf.cv', [
             'personal' => $personal,
             'fotoPrincipal' => $fotoPrincipal,
             'fotografias' => $fotografias,
@@ -279,7 +310,7 @@ class PersonalController extends Controller
         
         $pdf->setPaper('letter', 'portrait');
 
-        return $pdf->download('CV-' . \Illuminate\Support\Str::slug($personal->nombres . '-' . $personal->apellidos) . '.pdf');
+        return $pdf->download('CV-' . Str::slug($personal->nombres . '-' . $personal->apellidos) . '.pdf');
     }
 
     /**
@@ -287,7 +318,7 @@ class PersonalController extends Controller
      *
      * GET /api/v1/personal/{personal}/expediente
      */
-    public function generarExpediente(int $id)
+    public function generarExpediente(Request $request, int $id)
     {
         $personal = Personal::with([
             'estadoCivil',
@@ -313,6 +344,8 @@ class PersonalController extends Controller
             abort(404, 'Personal no encontrado.');
         }
 
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente($request->user(), $personal);
+
         $modulos = [
             'info_personal'     => true,
             'info_laboral'      => true,
@@ -326,7 +359,8 @@ class PersonalController extends Controller
             'documentos'        => true,
         ];
 
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.expediente', [
+        /** @var DomPdfDocument $pdf */
+        $pdf = Pdf::loadView('pdf.expediente', [
             'personal'         => $personal,
             'modulos'          => $modulos,
             'fechaGeneracion'  => \Carbon\Carbon::now(),
@@ -334,7 +368,7 @@ class PersonalController extends Controller
 
         $pdf->setPaper('letter', 'portrait');
 
-        return $pdf->download('Expediente-' . \Illuminate\Support\Str::slug($personal->nombres . '-' . $personal->apellidos) . '.pdf');
+        return $pdf->download('Expediente-' . Str::slug($personal->nombres . '-' . $personal->apellidos) . '.pdf');
     }
 
     /**
@@ -354,10 +388,17 @@ class PersonalController extends Controller
             ], 404);
         }
 
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
+        PersonalAdministrativoGuard::abortSiNoPuedeEditar($request->user(), $personal);
+
         try {
             DB::beginTransaction();
 
             $payload = $this->payloadPersonal($request->validated());
+            if (array_key_exists('es_administrativo', $payload) && !PersonalAdministrativoGuard::tiene($request->user(), 'manage-personal-administrativo')) {
+                unset($payload['es_administrativo']);
+            }
             if (!empty($personal->fecha_ingreso_original)) {
                 unset($payload['fecha_ingreso_original']);
             } elseif (empty($payload['fecha_ingreso_original']) && !empty($payload['fecha_inicio'])) {
@@ -366,11 +407,11 @@ class PersonalController extends Controller
             $personal->update($payload);
             $this->syncTallas($personal, $request->input('tallas'));
 
-            // Actualizar o crear dirección
-            if ($request->has('direccion')) {
+            $direccion = $request->input('direccion');
+            if (is_array($direccion) && $direccion !== []) {
                 $personal->direccion()->updateOrCreate(
                     ['personal_id' => $personal->id],
-                    $request->input('direccion')
+                    $direccion
                 );
             }
 
@@ -456,6 +497,8 @@ class PersonalController extends Controller
             ], 404);
         }
 
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         $personal->delete();
 
         return response()->json([
@@ -480,6 +523,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         if (!$personal->trashed()) {
             return response()->json([
@@ -518,6 +563,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         $personal->update(['estado' => $request->estado]);
 
@@ -698,6 +745,8 @@ class PersonalController extends Controller
             ], 404);
         }
 
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         $direccion = $personal->direccion()->updateOrCreate(
             ['personal_id' => $personal->id],
             $request->validated()
@@ -728,6 +777,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         $direccion = $personal->direccion;
 
@@ -763,6 +814,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         $direccion = $personal->direccion;
 
@@ -805,6 +858,8 @@ class PersonalController extends Controller
             ], 404);
         }
 
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         $referencias = $personal->referenciasLaborales()
             ->orderBy('fecha_inicio', 'desc')
             ->get();
@@ -833,6 +888,8 @@ class PersonalController extends Controller
             ], 404);
         }
 
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         $referencia = $personal->referenciasLaborales()->create($request->validated());
 
         return response()->json([
@@ -858,6 +915,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         $referencia = $personal->referenciasLaborales()->find($referenciaId);
 
@@ -891,6 +950,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         $referencia = $personal->referenciasLaborales()->find($referenciaId);
 
@@ -927,6 +988,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         $referencia = $personal->referenciasLaborales()->find($referenciaId);
 
@@ -969,6 +1032,8 @@ class PersonalController extends Controller
             ], 404);
         }
 
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         $familiares = $personal->familiares()
             ->with('parentesco')
             ->orderBy('es_contacto_emergencia', 'desc')
@@ -998,6 +1063,8 @@ class PersonalController extends Controller
             ], 404);
         }
 
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         $familiar = $personal->familiares()->create($request->validated());
         $familiar->load('parentesco');
 
@@ -1024,6 +1091,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         $familiar = $personal->familiares()->find($familiarId);
 
@@ -1061,6 +1130,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         $familiar = $personal->familiares()->find($familiarId);
 
@@ -1103,6 +1174,8 @@ class PersonalController extends Controller
             ], 404);
         }
 
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         $redesSociales = $personal->redesSociales()
             ->with('redSocial')
             ->get();
@@ -1131,6 +1204,8 @@ class PersonalController extends Controller
             ], 404);
         }
 
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         $redSocial = $personal->redesSociales()->create($request->validated());
         $redSocial->load('redSocial');
 
@@ -1157,6 +1232,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         $redSocial = $personal->redesSociales()->find($redSocialId);
 
@@ -1194,6 +1271,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         $redSocial = $personal->redesSociales()->find($redSocialId);
 
@@ -1239,6 +1318,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         try {
             // Eliminar foto anterior si existe
@@ -1290,6 +1371,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         if (!$personal->foto_perfil) {
             return response()->json([
@@ -1376,6 +1459,8 @@ class PersonalController extends Controller
                 'error' => 'not_found',
             ], 404);
         }
+
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
         // Obtener la planilla y sus fechas
         $planilla = \App\Models\Planilla::findOrFail($request->input('planilla_id'));
@@ -1571,6 +1656,8 @@ class PersonalController extends Controller
             ], 404);
         }
 
+        PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
+
         // Obtener asignaciones con relaciones
         $asignaciones = \App\Models\OperacionPersonalAsignado::where('personal_id', $id)
             ->with([
@@ -1628,6 +1715,10 @@ class PersonalController extends Controller
                 'message' => 'Personal no encontrado.',
                 'error' => 'not_found',
             ], 404);
+        }
+
+        if ($personal->es_administrativo && !PersonalAdministrativoGuard::puedeVerNomina(request()->user(), $personal)) {
+            abort(403, 'El expediente de personal administrativo solo lo ven gerencia y recursos humanos.');
         }
 
         $perPage = min($request->input('per_page', 15), 100);

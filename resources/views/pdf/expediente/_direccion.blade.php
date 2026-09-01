@@ -26,6 +26,22 @@
             <div class="info-value">{{ $personal->direccion->departamentoGeografico->nombre }}</div>
         </div>
         @endif
+        @if($personal->vive_en_cuadra)
+        <div class="info-row">
+            <div class="info-label">Cuadra:</div>
+            <div class="info-value">Vive en cuadra de la empresa</div>
+        </div>
+        @endif
+    </div>
+</div>
+@elseif($personal->vive_en_cuadra)
+<div class="seccion">
+    <div class="seccion-titulo">Dirección</div>
+    <div class="info-grid">
+        <div class="info-row">
+            <div class="info-label">Cuadra:</div>
+            <div class="info-value">Vive en cuadra de la empresa</div>
+        </div>
     </div>
 </div>
 @endif

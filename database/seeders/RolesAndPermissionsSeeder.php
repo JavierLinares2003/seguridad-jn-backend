@@ -94,6 +94,12 @@ class RolesAndPermissionsSeeder extends Seeder
             // Datos sensibles de personal (salario, banco, salud, familia)
             'view-personal-sensible',
 
+            // Personal administrativo (expediente restringido)
+            'view-personal-administrativo',
+            'manage-personal-administrativo',
+            'view-asistencia-administrativa',
+            'manage-asistencia-administrativa',
+
             // BODEGA / Inventario central
             'view-bodega',
             'manage-bodega',
@@ -112,6 +118,7 @@ class RolesAndPermissionsSeeder extends Seeder
         $this->createGestorProyectosRole();
         $this->createContabilidadRole();
         $this->createOperacionesRole();
+        $this->createGerenteRrhhRole();
 
         // Create/Update users
         $this->createUsers();
@@ -321,6 +328,35 @@ class RolesAndPermissionsSeeder extends Seeder
             'view-catalogos',
             'view-bodega',
             'manage-bodega',
+        ]);
+    }
+
+    /**
+     * Gerente de RRHH: expedientes de administrativos y su asistencia.
+     * No ve asistencia operativa de campo.
+     */
+    private function createGerenteRrhhRole(): void
+    {
+        $rrhh = Role::firstOrCreate(['name' => 'gerente-rrhh', 'guard_name' => 'web']);
+        $rrhh->syncPermissions([
+            'view-personal',
+            'create-personal',
+            'edit-personal',
+            'view-personal-sensible',
+            'view-personal-administrativo',
+            'manage-personal-administrativo',
+            'view-documentos',
+            'upload-documentos',
+            'download-documentos',
+            'delete-documentos',
+            'manage-personal-direccion',
+            'manage-personal-familiares',
+            'manage-personal-referencias',
+            'manage-personal-redes-sociales',
+            'manage-vacaciones',
+            'view-catalogos',
+            'view-asistencia-administrativa',
+            'manage-asistencia-administrativa',
         ]);
     }
 

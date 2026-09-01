@@ -21,6 +21,7 @@ class RoleController extends Controller implements HasMiddleware
         'view-personal' => 'Personal',
         'view-proyectos' => 'Proyectos',
         'view-operaciones' => 'Operaciones / Asistencia',
+        'view-asistencia-administrativa' => 'Asistencia administrativa',
         'view-planillas' => 'Planillas',
         'view-bodega' => 'Bodega / Inventario',
         'view-users' => 'Usuarios',
@@ -297,6 +298,7 @@ class RoleController extends Controller implements HasMiddleware
         $relatedByView = [
             'view-bodega' => ['manage-bodega'],
             'view-proyectos' => ['create-proyectos', 'edit-proyectos'],
+            'view-asistencia-administrativa' => ['manage-asistencia-administrativa'],
         ];
         $allRelated = [];
         foreach ($relatedByView as $actions) {

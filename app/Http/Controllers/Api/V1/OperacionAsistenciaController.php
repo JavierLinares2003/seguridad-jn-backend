@@ -32,10 +32,14 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             new Middleware('permission:view-operaciones', only: [
                 'index', 'show', 'porFecha', 'porProyecto', 'resumen', 'historialPersonal',
                 'reemplazosDisponibles', 'vistaAgrupada', 'motivosAusencia', 'calendarioTurno',
-                'calendarioPersonal',
+            ]),
+            new Middleware('permission:view-asistencia-administrativa', only: ['administrativaPorFecha']),
+            new Middleware('permission:view-operaciones|view-asistencia-administrativa', only: ['calendarioPersonal']),
+            new Middleware('permission:manage-asistencia|manage-asistencia-administrativa', only: [
+                'store', 'update', 'destroy',
             ]),
             new Middleware('permission:manage-asistencia', only: [
-                'store', 'update', 'destroy', 'generarDescansos', 'marcarAusencia', 'permisosDisponibles'
+                'generarDescansos', 'marcarAusencia', 'permisosDisponibles'
             ]),
         ];
     }
@@ -119,7 +123,13 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
      */
     public function store(RegistrarAsistenciaRequest $request): JsonResponse
     {
-        $userId = $request->user()?->id;
+        $user = $request->user();
+        $bloqueo = $this->autorizarAsistenciasAdministrativas($user, $request->input('asistencias', []));
+        if ($bloqueo) {
+            return $bloqueo;
+        }
+
+        $userId = $user?->id;
         $resultado = $this->asistenciaService->registrarAsistenciaMasiva(
             $request->input('asistencias'),
             $userId
@@ -622,6 +632,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         ?string $buscar = null
     ): JsonResponse {
         $personalQuery = \App\Models\Personal::with(['departamento'])
+            ->operativo()
             ->where('estado', 'activo')
             ->whereNotIn('id', $personalConAsignacion)
             ->where('departamento_id', $departamentoId)
@@ -703,6 +714,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         // Obtener todos los departamentos que tienen personal sin asignar
         $departamentos = \App\Models\Catalogos\Departamento::whereHas('personal', function ($q) use ($personalConAsignacion, $buscar) {
             $q->where('estado', 'activo')
+              ->operativo()
               ->whereNotIn('id', $personalConAsignacion)
               ->buscar($buscar);
         })->orderBy('nombre')->get();
@@ -712,6 +724,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         foreach ($departamentos as $departamento) {
             // Obtener personal de este departamento (limitado)
             $personalQuery = \App\Models\Personal::with(['departamento'])
+                ->operativo()
                 ->where('estado', 'activo')
                 ->whereNotIn('id', $personalConAsignacion)
                 ->where('departamento_id', $departamento->id)
@@ -840,6 +853,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
 
         // Calcular totales generales
         $totalGeneral = \App\Models\Personal::where('estado', 'activo')
+            ->operativo()
             ->whereNotIn('id', $personalConAsignacion)
             ->buscar($buscar)
             ->count();
@@ -879,10 +893,12 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         // Obtener departamentos con conteo de personal sin asignar
         $departamentos = \App\Models\Catalogos\Departamento::whereHas('personal', function ($q) use ($personalConAsignacion) {
             $q->where('estado', 'activo')
+              ->operativo()
               ->whereNotIn('id', $personalConAsignacion);
         })
         ->withCount(['personal' => function ($q) use ($personalConAsignacion) {
             $q->where('estado', 'activo')
+              ->operativo()
               ->whereNotIn('id', $personalConAsignacion);
         }])
         ->orderBy('nombre')
@@ -896,6 +912,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         });
 
         $totalGeneral = \App\Models\Personal::where('estado', 'activo')
+            ->operativo()
             ->whereNotIn('id', $personalConAsignacion)
             ->count();
 
@@ -1413,6 +1430,93 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         $fechaAsistencia = Carbon::parse($asistencia->fecha_asistencia);
 
         return $fechaAsistencia->isSameDay($ayer);
+    }
+
+    public function administrativaPorFecha(Request $request, string $fecha): JsonResponse
+    {
+        try {
+            $fechaCarbon = Carbon::parse($fecha);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Formato de fecha inválido.',
+            ], 422);
+        }
+
+        $personal = Personal::query()
+            ->administrativo()
+            ->whereIn('estado', ['activo', 'extrero'])
+            ->buscar($request->input('buscar'))
+            ->orderBy('apellidos')
+            ->orderBy('nombres')
+            ->get(['id', 'nombres', 'apellidos', 'puesto', 'estado', 'departamento_id']);
+
+        $asistencias = OperacionAsistencia::query()
+            ->whereNull('personal_asignado_id')
+            ->whereIn('personal_id', $personal->pluck('id'))
+            ->whereDate('fecha_asistencia', $fechaCarbon)
+            ->with(['motivoAusencia'])
+            ->get()
+            ->keyBy('personal_id');
+
+        $data = $personal->map(function (Personal $p) use ($asistencias) {
+            $asistencia = $asistencias->get($p->id);
+            return [
+                'id' => $p->id,
+                'nombre_completo' => $p->nombre_completo,
+                'puesto' => $p->puesto,
+                'asistencia' => $asistencia ? [
+                    'id' => $asistencia->id,
+                    'estado' => $asistencia->estado_dia,
+                    'es_descanso' => $asistencia->es_descanso,
+                    'es_ausente' => $asistencia->es_ausente,
+                    'motivo_ausencia' => $asistencia->motivoAusencia,
+                    'observaciones' => $asistencia->observaciones,
+                ] : ['id' => null, 'estado' => 'sin_registro'],
+            ];
+        })->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $data,
+            'meta' => [
+                'fecha' => $fechaCarbon->toDateString(),
+                'total' => $data->count(),
+            ],
+        ]);
+    }
+
+    private function autorizarAsistenciasAdministrativas($user, array $asistencias): ?JsonResponse
+    {
+        foreach ($asistencias as $item) {
+            $personal = null;
+            if (!empty($item['personal_id'])) {
+                $personal = Personal::find($item['personal_id']);
+            } elseif (!empty($item['personal_asignado_id'])) {
+                $asignacion = \App\Models\OperacionPersonalAsignado::find($item['personal_asignado_id']);
+                $personal = $asignacion?->personal;
+            }
+
+            if (!$personal) {
+                continue;
+            }
+
+            if ($personal->es_administrativo && !$user?->can('manage-asistencia-administrativa')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La asistencia de administrativos solo la registra gerencia o recursos humanos.',
+                ], 403);
+            }
+
+            if (!$personal->es_administrativo && !$user?->can('manage-asistencia')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No puede registrar asistencia operativa.',
+                ], 403);
+            }
+        }
+
+        return null;
     }
 
     /**
