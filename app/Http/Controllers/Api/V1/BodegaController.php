@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\BodegaArma;
 use App\Models\BodegaCategoria;
+use App\Models\User;
 use App\Models\BodegaCompra;
 use App\Models\BodegaEntrega;
 use App\Models\BodegaFacturaCompra;
@@ -94,19 +95,27 @@ class BodegaController extends Controller implements HasMiddleware
             ->limit(5)
             ->get();
 
+        $totales = [
+            'productos' => BodegaProducto::where('activo', true)->count(),
+            'variantes' => BodegaVariante::where('activo', true)->count(),
+            'existencia' => (int) BodegaVariante::where('activo', true)->sum('existencia'),
+            'stock_bajo' => BodegaVariante::where('activo', true)->whereColumn('existencia', '<=', 'stock_minimo')->count(),
+            'movimientos_hoy' => BodegaMovimiento::whereDate('fecha_movimiento', today())->count(),
+        ];
+
+        $user = Auth::user();
+        if ($user instanceof User && $user->can('view-armas')) {
+            $totales['armas'] = BodegaArma::count();
+            $totales['armas_vencidas'] = BodegaArma::whereNotNull('vencimiento')
+                ->whereDate('vencimiento', '<', today())
+                ->count();
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
                 'categorias' => $categorias,
-                'totales' => [
-                    'productos' => BodegaProducto::where('activo', true)->count(),
-                    'variantes' => BodegaVariante::where('activo', true)->count(),
-                    'existencia' => (int) BodegaVariante::where('activo', true)->sum('existencia'),
-                    'stock_bajo' => BodegaVariante::where('activo', true)->whereColumn('existencia', '<=', 'stock_minimo')->count(),
-                    'movimientos_hoy' => BodegaMovimiento::whereDate('fecha_movimiento', today())->count(),
-                    'armas' => BodegaArma::count(),
-                    'armas_vencidas' => BodegaArma::whereNotNull('vencimiento')->whereDate('vencimiento', '<', today())->count(),
-                ],
+                'totales' => $totales,
                 'ultimos_movimientos' => $ultimos,
                 'entregas_recientes' => $entregasRecientes,
             ],
@@ -450,6 +459,7 @@ class BodegaController extends Controller implements HasMiddleware
     {
         $data = $request->validate([
             'nombre' => ['required', 'string', 'max:150'],
+            'precio' => ['nullable', 'numeric', 'min:0'],
             'observaciones' => ['nullable', 'string'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.producto_id' => ['required', 'exists:bodega_productos,id'],
@@ -459,6 +469,7 @@ class BodegaController extends Controller implements HasMiddleware
         $kit = DB::transaction(function () use ($data) {
             $kit = BodegaKit::create([
                 'nombre' => $data['nombre'],
+                'precio' => $data['precio'] ?? null,
                 'observaciones' => $data['observaciones'] ?? null,
                 'activo' => true,
             ]);
@@ -481,6 +492,7 @@ class BodegaController extends Controller implements HasMiddleware
         $kit = BodegaKit::findOrFail($id);
         $data = $request->validate([
             'nombre' => ['sometimes', 'string', 'max:150'],
+            'precio' => ['nullable', 'numeric', 'min:0'],
             'activo' => ['nullable', 'boolean'],
             'observaciones' => ['nullable', 'string'],
             'items' => ['sometimes', 'array', 'min:1'],

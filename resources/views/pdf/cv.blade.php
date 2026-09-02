@@ -241,7 +241,7 @@
             @if($personal->vive_en_cuadra)
             <div class="info-row">
                 <div class="info-label">Cuadra:</div>
-                <div class="info-value">Vive en cuadra de la empresa</div>
+                <div class="info-value">Hace uso de cuadra de la empresa</div>
             </div>
             @endif
         </div>
@@ -252,7 +252,7 @@
         <div class="info-grid">
             <div class="info-row">
                 <div class="info-label">Cuadra:</div>
-                <div class="info-value">Vive en cuadra de la empresa</div>
+                <div class="info-value">Hace uso de cuadra de la empresa</div>
             </div>
         </div>
     </div>

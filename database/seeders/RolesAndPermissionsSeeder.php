@@ -103,6 +103,10 @@ class RolesAndPermissionsSeeder extends Seeder
             // BODEGA / Inventario central
             'view-bodega',
             'manage-bodega',
+
+            // Armas (independiente de bodega: solo admin y gerencia jurídica)
+            'view-armas',
+            'manage-armas',
         ];
 
         // Create permissions
@@ -119,6 +123,7 @@ class RolesAndPermissionsSeeder extends Seeder
         $this->createContabilidadRole();
         $this->createOperacionesRole();
         $this->createGerenteRrhhRole();
+        $this->createGerenciaJuridicaRole();
 
         // Create/Update users
         $this->createUsers();
@@ -357,6 +362,20 @@ class RolesAndPermissionsSeeder extends Seeder
             'view-catalogos',
             'view-asistencia-administrativa',
             'manage-asistencia-administrativa',
+        ]);
+    }
+
+    /**
+     * Gerencia Jurídica: inventario de armas (ver y editar).
+     * No tiene acceso a bodega general.
+     */
+    private function createGerenciaJuridicaRole(): void
+    {
+        $juridica = Role::firstOrCreate(['name' => 'gerencia-juridica', 'guard_name' => 'web']);
+        $juridica->syncPermissions([
+            'view-armas',
+            'manage-armas',
+            'view-proyectos',
         ]);
     }
 

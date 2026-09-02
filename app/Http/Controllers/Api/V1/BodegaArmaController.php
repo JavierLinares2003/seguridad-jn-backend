@@ -18,9 +18,8 @@ class BodegaArmaController extends Controller implements HasMiddleware
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:view-bodega|manage-proyectos-inventario|view-proyectos', only: ['index', 'catalogo', 'show']),
-            new Middleware('permission:manage-bodega', only: ['store', 'update']),
-            new Middleware('permission:manage-bodega|manage-proyectos-inventario', only: ['asignarProyecto', 'devolverBodega']),
+            new Middleware('permission:view-armas', only: ['index', 'catalogo', 'show']),
+            new Middleware('permission:manage-armas', only: ['store', 'update', 'asignarProyecto', 'devolverBodega']),
         ];
     }
 

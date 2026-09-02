@@ -17,6 +17,7 @@ class BodegaSeeder extends Seeder
         foreach (['view-bodega', 'manage-bodega'] as $perm) {
             Permission::firstOrCreate(['name' => $perm, 'guard_name' => 'web']);
         }
+        // Armas usa view-armas / manage-armas (BodegaArmasPermisosSeeder), no se otorga aquí.
 
         if ($admin = Role::where('name', 'admin')->first()) {
             $admin->givePermissionTo(['view-bodega', 'manage-bodega']);

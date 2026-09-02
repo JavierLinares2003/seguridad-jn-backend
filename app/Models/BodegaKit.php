@@ -18,12 +18,14 @@ class BodegaKit extends Model
     protected $fillable = [
         'nombre',
         'codigo',
+        'precio',
         'activo',
         'observaciones',
     ];
 
     protected $casts = [
         'activo' => 'boolean',
+        'precio' => 'decimal:2',
     ];
 
     public function items(): HasMany
