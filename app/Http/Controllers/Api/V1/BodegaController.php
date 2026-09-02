@@ -3,9 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\BodegaArma;
 use App\Models\BodegaCategoria;
-use App\Models\User;
 use App\Models\BodegaCompra;
 use App\Models\BodegaEntrega;
 use App\Models\BodegaFacturaCompra;
@@ -102,14 +100,6 @@ class BodegaController extends Controller implements HasMiddleware
             'stock_bajo' => BodegaVariante::where('activo', true)->whereColumn('existencia', '<=', 'stock_minimo')->count(),
             'movimientos_hoy' => BodegaMovimiento::whereDate('fecha_movimiento', today())->count(),
         ];
-
-        $user = Auth::user();
-        if ($user instanceof User && $user->can('view-armas')) {
-            $totales['armas'] = BodegaArma::count();
-            $totales['armas_vencidas'] = BodegaArma::whereNotNull('vencimiento')
-                ->whereDate('vencimiento', '<', today())
-                ->count();
-        }
 
         return response()->json([
             'success' => true,
