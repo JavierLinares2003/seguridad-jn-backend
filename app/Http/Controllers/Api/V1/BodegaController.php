@@ -449,17 +449,17 @@ class BodegaController extends Controller implements HasMiddleware
     {
         $data = $request->validate([
             'nombre' => ['required', 'string', 'max:150'],
-            'precio' => ['nullable', 'numeric', 'min:0'],
             'observaciones' => ['nullable', 'string'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.producto_id' => ['required', 'exists:bodega_productos,id'],
             'items.*.cantidad' => ['required', 'integer', 'min:1'],
+            'items.*.precio' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         $kit = DB::transaction(function () use ($data) {
             $kit = BodegaKit::create([
                 'nombre' => $data['nombre'],
-                'precio' => $data['precio'] ?? null,
+                'precio' => $this->precioTotalKit($data['items']),
                 'observaciones' => $data['observaciones'] ?? null,
                 'activo' => true,
             ]);
@@ -467,6 +467,7 @@ class BodegaController extends Controller implements HasMiddleware
                 $kit->items()->create([
                     'producto_id' => $item['producto_id'],
                     'cantidad' => $item['cantidad'],
+                    'precio' => $item['precio'] ?? null,
                 ]);
             }
             app(BodegaService::class)->asegurarCodigoKit($kit);
@@ -482,12 +483,12 @@ class BodegaController extends Controller implements HasMiddleware
         $kit = BodegaKit::findOrFail($id);
         $data = $request->validate([
             'nombre' => ['sometimes', 'string', 'max:150'],
-            'precio' => ['nullable', 'numeric', 'min:0'],
             'activo' => ['nullable', 'boolean'],
             'observaciones' => ['nullable', 'string'],
             'items' => ['sometimes', 'array', 'min:1'],
             'items.*.producto_id' => ['required_with:items', 'exists:bodega_productos,id'],
             'items.*.cantidad' => ['required_with:items', 'integer', 'min:1'],
+            'items.*.precio' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         DB::transaction(function () use ($kit, $data) {
@@ -499,8 +500,10 @@ class BodegaController extends Controller implements HasMiddleware
                     $kit->items()->create([
                         'producto_id' => $item['producto_id'],
                         'cantidad' => $item['cantidad'],
+                        'precio' => $item['precio'] ?? null,
                     ]);
                 }
+                $kit->update(['precio' => $this->precioTotalKit($data['items'])]);
             }
         });
 
@@ -713,5 +716,23 @@ class BodegaController extends Controller implements HasMiddleware
             'message' => 'Paso marcado. El pago queda apuntado como ya se pagó; no hay conciliación bancaria.',
             'data' => $compra->fresh(['proveedor', 'items']),
         ]);
+    }
+
+    /**
+     * @param  array<int, array{cantidad?:int, precio?:float|int|string|null}>  $items
+     */
+    private function precioTotalKit(array $items): ?float
+    {
+        $total = 0.0;
+        $tienePrecio = false;
+        foreach ($items as $item) {
+            if (!array_key_exists('precio', $item) || $item['precio'] === null || $item['precio'] === '') {
+                continue;
+            }
+            $tienePrecio = true;
+            $total += ((int) ($item['cantidad'] ?? 1)) * (float) $item['precio'];
+        }
+
+        return $tienePrecio ? round($total, 2) : null;
     }
 }

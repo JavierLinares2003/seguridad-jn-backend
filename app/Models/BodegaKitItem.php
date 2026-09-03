@@ -13,10 +13,12 @@ class BodegaKitItem extends Model
         'kit_id',
         'producto_id',
         'cantidad',
+        'precio',
     ];
 
     protected $casts = [
         'cantidad' => 'integer',
+        'precio' => 'decimal:2',
     ];
 
     public function kit(): BelongsTo
