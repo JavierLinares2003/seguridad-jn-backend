@@ -265,7 +265,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             'buscar' => 'nullable|string|max:100',
             'sin_asignar' => 'nullable|in:true,false,1,0',
             'departamento_id' => 'nullable|integer|exists:departamentos,id',
-            'per_page' => 'nullable|integer|min:1|max:50',
+            'per_page' => 'nullable|integer|min:1|max:200',
         ]);
 
         try {
@@ -317,52 +317,26 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
 
     /**
      * Retorna proyectos con su personal asignado para una fecha, paginado por proyectos.
+     * Criterio: hay asignación vigente ese día. No se filtra por fechas del contrato
+     * (si hay gente en el puesto, el proyecto debe salir en el listado).
      */
     private function getProyectosConPersonal(Carbon $fecha, int $perPage, ?string $buscar = null): JsonResponse
     {
-        // Obtener IDs de proyectos que tienen asignaciones activas en esta fecha
         $proyectosConAsignaciones = \App\Models\OperacionPersonalAsignado::vigentes($fecha)
             ->whereNotNull('proyecto_id')
             ->when($buscar, fn ($q) => $q->whereHas('personal', fn ($pq) => $pq->buscar($buscar)))
             ->distinct()
             ->pluck('proyecto_id');
 
-        // Paginar proyectos - solo aquellos donde la fecha está en el rango del proyecto
-        // Incluir proyectos en planificación y activos (excluir suspendido y finalizado)
-        $proyectosPaginados = Proyecto::whereIn('id', $proyectosConAsignaciones)
+        $proyectosPaginados = Proyecto::query()
+            ->whereIn('id', $proyectosConAsignaciones)
             ->whereIn('estado_proyecto', ['planificacion', 'activo'])
-            // La fecha debe estar dentro del rango del proyecto
-            ->where(function ($q) use ($fecha) {
-                // CASO 1: Si tiene fechas reales, usar esas
-                $q->where(function ($q2) use ($fecha) {
-                    $q2->whereNotNull('fecha_inicio_real')
-                       ->where('fecha_inicio_real', '<=', $fecha)
-                       ->where(function ($q3) use ($fecha) {
-                           $q3->whereNull('fecha_fin_real')
-                              ->orWhere('fecha_fin_real', '>=', $fecha);
-                       });
-                })
-                // CASO 2: Si no tiene fechas reales pero sí estimadas, usar estimadas
-                ->orWhere(function ($q2) use ($fecha) {
-                    $q2->whereNull('fecha_inicio_real')
-                       ->whereNotNull('fecha_inicio_estimada')
-                       ->where('fecha_inicio_estimada', '<=', $fecha)
-                       ->where(function ($q3) use ($fecha) {
-                           $q3->whereNull('fecha_fin_estimada')
-                              ->orWhere('fecha_fin_estimada', '>=', $fecha);
-                       });
-                })
-                // CASO 3: Si no tiene ninguna fecha, incluir siempre (proyecto sin restricción de fechas)
-                ->orWhere(function ($q2) {
-                    $q2->whereNull('fecha_inicio_real')
-                       ->whereNull('fecha_inicio_estimada');
-                });
-            })
             ->orderBy('nombre_proyecto')
+            ->orderBy('id')
             ->paginate($perPage);
 
         // Para cada proyecto, obtener su personal con asistencia
-        $proyectosConPersonal = $proyectosPaginados->getCollection()->map(function ($proyecto) use ($fecha, $buscar) {
+        $proyectosConPersonal = $proyectosPaginados->getCollection()->map(function ($proyecto) use ($fecha) {
             $asignaciones = \App\Models\OperacionPersonalAsignado::with([
                 'personal',
                 'turno',
