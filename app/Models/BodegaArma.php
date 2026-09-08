@@ -24,6 +24,8 @@ class BodegaArma extends Model
         'en_bodega' => 'En bodega',
         'asignada' => 'Asignada',
         'mantenimiento' => 'Mantenimiento',
+        'consignada' => 'Consignada',
+        'robada' => 'Robada',
         'baja' => 'Baja',
     ];
 
@@ -43,6 +45,7 @@ class BodegaArma extends Model
         'personal_id',
         'proyecto_id',
         'estado',
+        'numero_denuncia',
         'observaciones',
     ];
 

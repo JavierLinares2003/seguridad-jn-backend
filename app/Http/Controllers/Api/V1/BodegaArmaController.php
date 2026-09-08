@@ -66,8 +66,14 @@ class BodegaArmaController extends Controller implements HasMiddleware
             $query->where('estado', 'en_bodega')->whereNull('proyecto_id');
         }
 
-        if ($request->boolean('solo_vencidas')) {
+        if ($request->boolean('solo_vencidas') || $request->input('alerta') === 'vencida') {
             $query->whereNotNull('vencimiento')->whereDate('vencimiento', '<', today());
+        }
+
+        if ($request->input('alerta') === 'por_vencer') {
+            $query->whereNotNull('vencimiento')
+                ->whereDate('vencimiento', '>=', today())
+                ->whereDate('vencimiento', '<=', today()->addDays(30));
         }
 
         if ($search = trim((string) $request->input('search'))) {
@@ -79,7 +85,8 @@ class BodegaArmaController extends Controller implements HasMiddleware
                     ->orWhere('modelo', 'ilike', "%{$search}%")
                     ->orWhere('tenencia', 'ilike', "%{$search}%")
                     ->orWhere('portacion', 'ilike', "%{$search}%")
-                    ->orWhere('responsable_nombre', 'ilike', "%{$search}%");
+                    ->orWhere('responsable_nombre', 'ilike', "%{$search}%")
+                    ->orWhere('numero_denuncia', 'ilike', "%{$search}%");
             });
         }
 
@@ -92,8 +99,17 @@ class BodegaArmaController extends Controller implements HasMiddleware
             ),
             'en_bodega' => $items->where('estado', 'en_bodega')->count(),
             'asignadas' => $items->where('estado', 'asignada')->count(),
-            'vencidas' => $items->where('alerta_vencimiento', 'vencida')->count(),
-            'por_vencer' => $items->where('alerta_vencimiento', 'por_vencer')->count(),
+            'robadas' => $items->where('estado', 'robada')->count(),
+            'consignadas' => $items->where('estado', 'consignada')->count(),
+            'vencidas' => BodegaArma::query()
+                ->whereNotNull('vencimiento')
+                ->whereDate('vencimiento', '<', today())
+                ->count(),
+            'por_vencer' => BodegaArma::query()
+                ->whereNotNull('vencimiento')
+                ->whereDate('vencimiento', '>=', today())
+                ->whereDate('vencimiento', '<=', today()->addDays(30))
+                ->count(),
         ];
 
         return response()->json([
@@ -146,10 +162,10 @@ class BodegaArmaController extends Controller implements HasMiddleware
         ]);
 
         $arma = BodegaArma::findOrFail($id);
-        if ($arma->estado === 'baja') {
+        if (in_array($arma->estado, ['baja', 'robada', 'consignada'], true)) {
             return response()->json([
                 'success' => false,
-                'message' => 'No se puede cargar un arma dada de baja.',
+                'message' => 'No se puede cargar un arma en estado ' . ($arma->estado_label ?: $arma->estado) . '.',
             ], 422);
         }
 
@@ -215,6 +231,7 @@ class BodegaArmaController extends Controller implements HasMiddleware
             'personal_id' => ['nullable', 'exists:personal,id'],
             'proyecto_id' => ['nullable', 'exists:proyectos,id'],
             'estado' => ['nullable', Rule::in(array_keys(BodegaArma::ESTADOS))],
+            'numero_denuncia' => ['nullable', 'string', 'max:80'],
             'observaciones' => ['nullable', 'string'],
         ]);
 
@@ -222,6 +239,16 @@ class BodegaArmaController extends Controller implements HasMiddleware
             $data['estado'] = (!empty($data['personal_id']) || !empty($data['proyecto_id']) || !empty($data['responsable_nombre']))
                 ? 'asignada'
                 : 'en_bodega';
+        }
+
+        if (($data['estado'] ?? '') === 'robada') {
+            $denuncia = trim((string) ($data['numero_denuncia'] ?? ''));
+            if ($denuncia === '') {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'numero_denuncia' => ['En armas robadas el número de denuncia es obligatorio.'],
+                ]);
+            }
+            $data['numero_denuncia'] = $denuncia;
         }
 
         return $data;

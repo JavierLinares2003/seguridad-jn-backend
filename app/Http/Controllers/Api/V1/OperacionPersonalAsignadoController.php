@@ -660,7 +660,7 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
 
             // Obtener asignaciones activas (incluye futuras para planificación)
             $asignaciones = OperacionPersonalAsignado::with([
-                'personal:id,nombres,apellidos,dpi,telefono,foto_perfil',
+                'personal:id,nombres,apellidos,dpi,telefono,telefono_whatsapp,estado,foto_perfil',
                 'turno:id,nombre,hora_inicio,hora_fin',
                 'configuracionPuesto:id,nombre_puesto',
             ])
@@ -681,11 +681,14 @@ class OperacionPersonalAsignadoController extends Controller implements HasMiddl
                     'faltantes' => max(0, $config->cantidad_requerida - $asignadosEnPuesto->count()),
                     'asignados' => $asignadosEnPuesto->map(fn($a) => [
                         'asignacion_id' => $a->id,
+                        'es_extra' => (bool) $a->es_extra,
                         'personal' => $a->personal ? [
                             'id' => $a->personal->id,
                             'nombre_completo' => $a->personal->nombre_completo,
                             'dpi' => $a->personal->dpi,
                             'telefono' => $a->personal->telefono,
+                            'telefono_whatsapp' => $a->personal->telefono_whatsapp,
+                            'estado' => $a->personal->estado,
                             'iniciales' => $a->personal->iniciales,
                             'foto_url' => $a->personal->foto_url,
                         ] : null,
