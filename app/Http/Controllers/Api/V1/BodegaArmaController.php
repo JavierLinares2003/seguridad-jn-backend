@@ -19,7 +19,7 @@ class BodegaArmaController extends Controller implements HasMiddleware
     {
         return [
             new Middleware('permission:view-armas', only: ['index', 'catalogo', 'show']),
-            new Middleware('permission:manage-armas', only: ['store', 'update', 'asignarProyecto', 'devolverBodega']),
+            new Middleware('permission:manage-armas', only: ['store', 'update', 'asignarProyecto', 'devolverBodega', 'destroy']),
         ];
     }
 
@@ -203,6 +203,18 @@ class BodegaArmaController extends Controller implements HasMiddleware
             'success' => true,
             'message' => 'Arma descargada. Volvió a bodega.',
             'data' => $arma->fresh(),
+        ]);
+    }
+
+    public function destroy(int $id): JsonResponse
+    {
+        $arma = BodegaArma::findOrFail($id);
+        $etiqueta = $arma->codigo ?: $arma->serie;
+        $arma->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => "Arma {$etiqueta} eliminada por completo.",
         ]);
     }
 

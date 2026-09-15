@@ -41,7 +41,7 @@ class BodegaProducto extends Model
         'activo' => 'boolean',
     ];
 
-    protected $appends = ['existencia_total'];
+    protected $appends = ['existencia_total', 'existencia_baja_total'];
 
     public function categoria(): BelongsTo
     {
@@ -65,6 +65,15 @@ class BodegaProducto extends Model
         }
 
         return (int) $this->variantes()->sum('existencia');
+    }
+
+    public function getExistenciaBajaTotalAttribute(): int
+    {
+        if ($this->relationLoaded('variantes')) {
+            return (int) $this->variantes->sum('existencia_baja');
+        }
+
+        return (int) $this->variantes()->sum('existencia_baja');
     }
 
     public function precioParaCondicion(?string $condicion): float

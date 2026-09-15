@@ -97,6 +97,7 @@ class BodegaController extends Controller implements HasMiddleware
             'productos' => BodegaProducto::where('activo', true)->count(),
             'variantes' => BodegaVariante::where('activo', true)->count(),
             'existencia' => (int) BodegaVariante::where('activo', true)->sum('existencia'),
+            'existencia_baja' => (int) BodegaVariante::sum('existencia_baja'),
             'stock_bajo' => BodegaVariante::where('activo', true)->whereColumn('existencia', '<=', 'stock_minimo')->count(),
             'movimientos_hoy' => BodegaMovimiento::whereDate('fecha_movimiento', today())->count(),
         ];

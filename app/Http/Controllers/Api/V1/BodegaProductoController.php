@@ -11,15 +11,14 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 
 class BodegaProductoController extends Controller implements HasMiddleware
 {
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:view-bodega', only: ['index', 'show']),
-            new Middleware('permission:manage-bodega', only: ['store', 'update', 'destroy', 'storeVariante', 'updateVariante']),
+            new Middleware('permission:view-bodega', only: ['index', 'show', 'bajas']),
+            new Middleware('permission:manage-bodega', only: ['store', 'update', 'destroy', 'storeVariante', 'updateVariante', 'ingresarUsados', 'darBaja']),
         ];
     }
 
@@ -237,5 +236,92 @@ class BodegaProductoController extends Controller implements HasMiddleware
         $variante->update($data);
 
         return response()->json(['success' => true, 'data' => $variante->fresh()]);
+    }
+
+    public function ingresarUsados(Request $request, int $id, BodegaService $bodegaService): JsonResponse
+    {
+        $producto = BodegaProducto::findOrFail($id);
+        $data = $request->validate([
+            'variante_id' => ['nullable', 'exists:bodega_variantes,id'],
+            'talla' => ['nullable', 'string', 'max:30'],
+            'genero' => ['nullable', 'string', 'in:mujer,hombre,unisex'],
+            'cantidad' => ['required', 'integer', 'min:1'],
+            'observaciones' => ['nullable', 'string'],
+        ]);
+
+        try {
+            $mov = $bodegaService->ingresarUsados($producto, $data, Auth::id());
+            $mov->load(['variante.producto.categoria']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Artículos usados ingresados al inventario.',
+                'data' => $mov,
+            ], 201);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function darBaja(Request $request, int $id, BodegaService $bodegaService): JsonResponse
+    {
+        $data = $request->validate([
+            'variante_id' => ['required', 'exists:bodega_variantes,id'],
+            'cantidad' => ['required', 'integer', 'min:1'],
+            'observaciones' => ['nullable', 'string'],
+        ]);
+
+        $variante = BodegaVariante::where('producto_id', $id)->findOrFail($data['variante_id']);
+
+        try {
+            $mov = $bodegaService->darDeBaja(
+                $variante,
+                (int) $data['cantidad'],
+                $data['observaciones'] ?? null,
+                Auth::id()
+            );
+            $mov->load(['variante.producto.categoria']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Artículo dado de baja. Salió del inventario activo.',
+                'data' => $mov,
+            ], 201);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        }
+    }
+
+    public function bajas(Request $request): JsonResponse
+    {
+        $query = BodegaVariante::query()
+            ->with(['producto.categoria'])
+            ->where('existencia_baja', '>', 0)
+            ->whereHas('producto');
+
+        if ($request->filled('categoria_id')) {
+            $query->whereHas('producto', fn ($q) => $q->where('categoria_id', $request->categoria_id));
+        }
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->whereHas('producto', function ($q) use ($search) {
+                $q->where('nombre', 'ilike', "%{$search}%")
+                    ->orWhere('codigo', 'ilike', "%{$search}%");
+            });
+        }
+
+        $items = $query
+            ->orderByDesc('existencia_baja')
+            ->paginate($request->integer('per_page', 25));
+
+        $totalUnidades = (int) BodegaVariante::query()->sum('existencia_baja');
+
+        return response()->json([
+            'success' => true,
+            'data' => $items,
+            'meta' => [
+                'unidades_baja' => $totalUnidades,
+            ],
+        ]);
     }
 }

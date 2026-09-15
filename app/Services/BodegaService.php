@@ -199,7 +199,7 @@ class BodegaService
             throw new InvalidArgumentException('La cantidad debe ser mayor a 0.');
         }
 
-        if (!in_array($tipo, ['ingreso', 'egreso', 'ajuste', 'ajuste_inicial', 'merma'], true)) {
+        if (!in_array($tipo, ['ingreso', 'egreso', 'ajuste', 'ajuste_inicial', 'merma', 'baja'], true)) {
             throw new InvalidArgumentException('Tipo de movimiento no válido.');
         }
 
@@ -207,14 +207,16 @@ class BodegaService
             /** @var BodegaVariante $variante */
             $variante = BodegaVariante::lockForUpdate()->findOrFail($data['variante_id']);
             $anterior = (int) $variante->existencia;
+            $bajaActual = (int) $variante->existencia_baja;
 
             $nueva = match ($tipo) {
                 'ingreso', 'ajuste_inicial' => $anterior + $cantidad,
-                'egreso' => $anterior - $cantidad,
+                'egreso', 'baja' => $anterior - $cantidad,
                 'merma' => $anterior, // prenda dañada: no vuelve a stock usable
                 'ajuste' => $cantidad,
                 default => $anterior,
             };
+            $bajaNueva = $tipo === 'baja' ? $bajaActual + $cantidad : $bajaActual;
 
             if ($tipo === 'ajuste') {
                 // Para ajuste, "cantidad" enviada es el delta absoluto hacia el stock objetivo
@@ -241,7 +243,10 @@ class BodegaService
                 }
             }
 
-            $variante->update(['existencia' => $nueva]);
+            $variante->update([
+                'existencia' => $nueva,
+                'existencia_baja' => $bajaNueva,
+            ]);
 
             return BodegaMovimiento::create([
                 'variante_id' => $variante->id,
@@ -260,6 +265,75 @@ class BodegaService
                 'factura_compra_id' => $data['factura_compra_id'] ?? null,
             ]);
         });
+    }
+
+    /**
+     * Suma al stock usable artículos usados en buen estado (sin factura de compra).
+     *
+     * @param  array{variante_id?:int, talla?:string|null, genero?:string|null, cantidad:int, observaciones?:string|null}  $data
+     */
+    public function ingresarUsados(BodegaProducto $producto, array $data, ?int $userId = null): BodegaMovimiento
+    {
+        $cantidad = (int) ($data['cantidad'] ?? 0);
+        if ($cantidad <= 0) {
+            throw new InvalidArgumentException('Indique la cantidad de artículos usados.');
+        }
+
+        return DB::transaction(function () use ($producto, $data, $userId, $cantidad) {
+            if (!$producto->usa_condicion) {
+                $producto->update(['usa_condicion' => true]);
+            }
+
+            $talla = $data['talla'] ?? null;
+            $genero = $data['genero'] ?? null;
+            if (!empty($data['variante_id'])) {
+                $origen = BodegaVariante::where('producto_id', $producto->id)->findOrFail($data['variante_id']);
+                $talla = $origen->talla;
+                $genero = $origen->genero;
+            }
+
+            $variante = $this->upsertVariante($producto, [
+                'talla' => $talla,
+                'genero' => $genero,
+                'condicion' => 'usado',
+            ]);
+
+            $obs = trim((string) ($data['observaciones'] ?? ''));
+
+            return $this->registrarMovimiento([
+                'variante_id' => $variante->id,
+                'tipo' => 'ingreso',
+                'cantidad' => $cantidad,
+                'registrado_por_user_id' => $userId,
+                'referencia' => 'USADO-BUENO',
+                'observaciones' => $obs !== ''
+                    ? $obs
+                    : 'Ingreso de artículos usados en buen estado',
+            ]);
+        });
+    }
+
+    /**
+     * Retira del inventario activo y acumula en artículos de baja.
+     */
+    public function darDeBaja(BodegaVariante $variante, int $cantidad, ?string $observaciones = null, ?int $userId = null): BodegaMovimiento
+    {
+        if ($cantidad <= 0) {
+            throw new InvalidArgumentException('Indique cuántas unidades se dan de baja.');
+        }
+
+        $obs = trim((string) $observaciones);
+
+        return $this->registrarMovimiento([
+            'variante_id' => $variante->id,
+            'tipo' => 'baja',
+            'cantidad' => $cantidad,
+            'registrado_por_user_id' => $userId,
+            'referencia' => 'BAJA',
+            'observaciones' => $obs !== ''
+                ? $obs
+                : 'Artículo dado de baja: ya no está en condiciones de uso',
+        ]);
     }
 
     /**

@@ -23,12 +23,14 @@ class BodegaVariante extends Model
         'genero',
         'sku',
         'existencia',
+        'existencia_baja',
         'stock_minimo',
         'activo',
     ];
 
     protected $casts = [
         'existencia' => 'integer',
+        'existencia_baja' => 'integer',
         'stock_minimo' => 'integer',
         'activo' => 'boolean',
     ];

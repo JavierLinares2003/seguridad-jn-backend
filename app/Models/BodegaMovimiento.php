@@ -81,6 +81,8 @@ class BodegaMovimiento extends Model
             'egreso' => 'Egreso',
             'ajuste' => 'Ajuste',
             'ajuste_inicial' => 'Inventario inicial',
+            'baja' => 'Baja',
+            'merma' => 'Merma',
             default => $this->tipo,
         };
     }

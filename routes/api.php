@@ -677,6 +677,8 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.bodega.armas.asignar-proyecto');
             Route::post('/armas/{id}/devolver-bodega', [\App\Http\Controllers\Api\V1\BodegaArmaController::class, 'devolverBodega'])
                 ->name('api.v1.bodega.armas.devolver-bodega');
+            Route::delete('/armas/{id}', [\App\Http\Controllers\Api\V1\BodegaArmaController::class, 'destroy'])
+                ->name('api.v1.bodega.armas.destroy');
 
             Route::get('/proveedores', [\App\Http\Controllers\Api\V1\BodegaController::class, 'proveedores'])
                 ->name('api.v1.bodega.proveedores.index');
@@ -707,12 +709,18 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.bodega.productos.index');
             Route::post('/productos', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'store'])
                 ->name('api.v1.bodega.productos.store');
+            Route::get('/productos/bajas', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'bajas'])
+                ->name('api.v1.bodega.productos.bajas');
             Route::get('/productos/{id}', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'show'])
                 ->name('api.v1.bodega.productos.show');
             Route::put('/productos/{id}', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'update'])
                 ->name('api.v1.bodega.productos.update');
             Route::delete('/productos/{id}', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'destroy'])
                 ->name('api.v1.bodega.productos.destroy');
+            Route::post('/productos/{id}/ingresar-usados', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'ingresarUsados'])
+                ->name('api.v1.bodega.productos.ingresar-usados');
+            Route::post('/productos/{id}/dar-baja', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'darBaja'])
+                ->name('api.v1.bodega.productos.dar-baja');
             Route::post('/productos/{id}/variantes', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'storeVariante'])
                 ->name('api.v1.bodega.productos.variantes.store');
             Route::put('/productos/{productoId}/variantes/{varianteId}', [\App\Http\Controllers\Api\V1\BodegaProductoController::class, 'updateVariante'])
