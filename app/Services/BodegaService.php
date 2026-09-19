@@ -557,12 +557,15 @@ class BodegaService
                 'tipo' => $tipo,
                 'cobrar' => $cobrar,
                 'monto_total' => $cobrar ? $montoTotal : 0,
+                'cuotas_totales' => $cobrar ? ((int) ($data['descuento']['cuotas_totales'] ?? 0) ?: null) : null,
+                'monto_cuota' => null,
                 'motivo_reposicion' => $tipo === 'reposicion' ? ($data['motivo_reposicion'] ?? null) : null,
                 'cambio_por_dano' => $cambioDano,
                 'variante_entrada_dano_id' => $cambioDano ? ($data['variante_entrada_dano_id'] ?? null) : null,
                 'cantidad_entrada_dano' => $cambioDano ? (int) ($data['cantidad_entrada_dano'] ?? 1) : null,
                 'observaciones' => $data['observaciones'] ?? null,
                 'fecha_entrega' => $fecha,
+                'fecha_primer_pago' => $cobrar ? ($data['descuento']['fecha_inicio'] ?? $fecha) : null,
                 'registrado_por_user_id' => $data['registrado_por_user_id'] ?? null,
             ]);
             $entrega->refresh();
@@ -647,7 +650,16 @@ class BodegaService
                     ]);
 
                     $grupoUniforme = $resultado['grupo_uniforme'];
-                    $entrega->update(['grupo_uniforme' => $grupoUniforme]);
+                    $cuotasTotales = $cuotas;
+                    $montoCuota = $cuotasTotales > 0
+                        ? round($montoTotal / $cuotasTotales, 2)
+                        : $montoTotal;
+                    $entrega->update([
+                        'grupo_uniforme' => $grupoUniforme,
+                        'cuotas_totales' => $cuotasTotales,
+                        'monto_cuota' => $montoCuota,
+                        'fecha_primer_pago' => $descuento['fecha_inicio'] ?? $fecha,
+                    ]);
                 } else {
                     $sugerir = true;
                 }
@@ -670,15 +682,27 @@ class BodegaService
 
     /**
      * Devuelve a bodega lo que salió en una boleta (misma guía Nº).
-     * Sin ítems: devuelve todo lo pendiente.
+     * Sin ítems ni faltantes: devuelve todo lo pendiente.
+     * Los ítems no devueltos pueden descontarse en planilla.
      *
      * @param  array<int, array{item_id?:int, cantidad?:int}>  $items
+     * @param  array{
+     *     no_devueltos?: array<int, array{item_id?:int, cantidad?:int, precio_unitario?:float}>,
+     *     descontar_faltantes?: bool,
+     *     cuotas_totales?: int,
+     *     fecha_inicio?: string,
+     *     descripcion?: string
+     * }  $opciones
      */
-    public function registrarDevolucion(BodegaEntrega $entrega, array $items = [], ?int $userId = null): BodegaEntrega
-    {
-        return DB::transaction(function () use ($entrega, $items, $userId) {
+    public function registrarDevolucion(
+        BodegaEntrega $entrega,
+        array $items = [],
+        ?int $userId = null,
+        array $opciones = []
+    ): BodegaEntrega {
+        return DB::transaction(function () use ($entrega, $items, $userId, $opciones) {
             /** @var BodegaEntrega $entrega */
-            $entrega = BodegaEntrega::with('items')->lockForUpdate()->findOrFail($entrega->id);
+            $entrega = BodegaEntrega::with('items.variante.producto')->lockForUpdate()->findOrFail($entrega->id);
             if ($entrega->devuelta_at) {
                 throw new InvalidArgumentException('Esta boleta ya está marcada como devuelta.');
             }
@@ -688,49 +712,128 @@ class BodegaService
                 $itemId = (int) ($row['item_id'] ?? $row['id'] ?? 0);
                 $cant = (int) ($row['cantidad'] ?? 0);
                 if ($itemId > 0 && $cant > 0) {
-                    $solicitados[$itemId] = $cant;
+                    $solicitados[$itemId] = ($solicitados[$itemId] ?? 0) + $cant;
                 }
             }
 
+            $faltantes = [];
+            $preciosFaltante = [];
+            foreach ($opciones['no_devueltos'] ?? [] as $row) {
+                $itemId = (int) ($row['item_id'] ?? $row['id'] ?? 0);
+                $cant = (int) ($row['cantidad'] ?? 0);
+                if ($itemId > 0 && $cant > 0) {
+                    $faltantes[$itemId] = ($faltantes[$itemId] ?? 0) + $cant;
+                    if (isset($row['precio_unitario']) && $row['precio_unitario'] !== null && $row['precio_unitario'] !== '') {
+                        $preciosFaltante[$itemId] = round((float) $row['precio_unitario'], 2);
+                    }
+                }
+            }
+
+            $explicito = $solicitados !== [] || $faltantes !== [];
             $devolvioAlgo = false;
+            $montoFaltante = 0.0;
+            $nombresFaltantes = [];
+
             foreach ($entrega->items as $item) {
-                $pendiente = max(0, (int) $item->cantidad - (int) $item->cantidad_devuelta);
+                $pendiente = $item->cantidad_pendiente;
                 if ($pendiente <= 0) {
                     continue;
                 }
-                $devolver = $solicitados === []
-                    ? $pendiente
-                    : min($pendiente, $solicitados[$item->id] ?? 0);
-                if ($devolver <= 0) {
-                    continue;
+
+                $devolver = $explicito
+                    ? min($pendiente, $solicitados[$item->id] ?? 0)
+                    : $pendiente;
+                $noDevuelto = $explicito
+                    ? min(max(0, $pendiente - $devolver), $faltantes[$item->id] ?? 0)
+                    : 0;
+
+                if ($devolver + $noDevuelto > $pendiente) {
+                    throw new InvalidArgumentException(
+                        'Las cantidades a devolver y a descontar superan lo pendiente en un ítem.'
+                    );
                 }
 
-                $this->registrarMovimiento([
-                    'variante_id' => $item->variante_id,
-                    'tipo' => 'ingreso',
-                    'cantidad' => $devolver,
-                    'personal_id' => $entrega->personal_id,
-                    'registrado_por_user_id' => $userId,
-                    'referencia' => 'BOL-' . ($entrega->numero_boleta ?: $entrega->id),
-                    'observaciones' => 'Devolución boleta ' . ($entrega->numero_boleta ?: $entrega->id),
-                    'entrega_id' => $entrega->id,
-                ]);
+                if ($devolver > 0) {
+                    $this->registrarMovimiento([
+                        'variante_id' => $item->variante_id,
+                        'tipo' => 'ingreso',
+                        'cantidad' => $devolver,
+                        'personal_id' => $entrega->personal_id,
+                        'registrado_por_user_id' => $userId,
+                        'referencia' => 'BOL-' . ($entrega->numero_boleta ?: $entrega->id),
+                        'observaciones' => 'Devolución boleta ' . ($entrega->numero_boleta ?: $entrega->id),
+                        'entrega_id' => $entrega->id,
+                    ]);
 
-                $item->update(['cantidad_devuelta' => (int) $item->cantidad_devuelta + $devolver]);
-                $devolvioAlgo = true;
+                    $item->cantidad_devuelta = (int) $item->cantidad_devuelta + $devolver;
+                    $devolvioAlgo = true;
+                }
+
+                if ($noDevuelto > 0) {
+                    $precio = $preciosFaltante[$item->id] ?? (float) $item->precio_unitario;
+                    if ($precio <= 0 && !empty($opciones['descontar_faltantes'])) {
+                        $precio = $item->variante?->producto
+                            ? $item->variante->producto->precioParaCondicion($item->variante->condicion)
+                            : 0;
+                    }
+                    if ($precio > 0 && (float) $item->precio_unitario <= 0) {
+                        $item->precio_unitario = $precio;
+                    }
+                    $item->cantidad_no_devuelta = (int) $item->cantidad_no_devuelta + $noDevuelto;
+                    $montoFaltante = round($montoFaltante + ($precio * $noDevuelto), 2);
+                    $nombresFaltantes[] = ($item->variante?->producto?->nombre ?: 'Ítem') . " x{$noDevuelto}";
+                    $devolvioAlgo = true;
+                }
+
+                if ($devolver > 0 || $noDevuelto > 0) {
+                    $item->subtotal = round((float) $item->precio_unitario * (int) $item->cantidad, 2);
+                    $item->save();
+                }
             }
 
             if (!$devolvioAlgo) {
                 throw new InvalidArgumentException('No hay cantidades pendientes de devolver en esta boleta.');
             }
 
+            if (!empty($opciones['descontar_faltantes']) && $nombresFaltantes && $montoFaltante <= 0) {
+                throw new InvalidArgumentException('Indique el precio de lo no entregado para descontarlo en planilla.');
+            }
+
+            $grupoFaltante = $entrega->grupo_descuento_faltante;
+            if (!empty($opciones['descontar_faltantes']) && $montoFaltante > 0) {
+                $cuotas = max(1, (int) ($opciones['cuotas_totales'] ?? 1));
+                $descripcion = trim((string) ($opciones['descripcion'] ?? ''));
+                if ($descripcion === '') {
+                    $descripcion = 'Uniforme/equipo no devuelto · boleta ' . ($entrega->numero_boleta ?: $entrega->id);
+                    if ($nombresFaltantes) {
+                        $descripcion .= ' (' . implode(', ', $nombresFaltantes) . ')';
+                    }
+                }
+
+                $uniformeService = app(UniformeService::class);
+                $resultado = $uniformeService->crearDescuentoUniforme([
+                    'personal_id' => $entrega->personal_id,
+                    'monto' => $montoFaltante,
+                    'cuotas_totales' => $cuotas,
+                    'fecha_inicio' => $opciones['fecha_inicio'] ?? now()->toDateString(),
+                    'descripcion' => $descripcion,
+                    'registrado_por_user_id' => $userId,
+                ]);
+                $grupoFaltante = $resultado['grupo_uniforme'];
+            }
+
             $entrega->unsetRelation('items');
             $entrega->load('items');
-            $queda = $entrega->items->contains(
-                fn ($it) => (int) $it->cantidad > (int) $it->cantidad_devuelta
-            );
+            $queda = $entrega->items->contains(fn ($it) => $it->cantidad_pendiente > 0);
+            $updates = [];
+            if ($grupoFaltante && $grupoFaltante !== $entrega->grupo_descuento_faltante) {
+                $updates['grupo_descuento_faltante'] = $grupoFaltante;
+            }
             if (!$queda) {
-                $entrega->update(['devuelta_at' => now()]);
+                $updates['devuelta_at'] = now();
+            }
+            if ($updates) {
+                $entrega->update($updates);
             }
 
             return $entrega->fresh([

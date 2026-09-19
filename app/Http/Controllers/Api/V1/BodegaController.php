@@ -395,20 +395,44 @@ class BodegaController extends Controller implements HasMiddleware
             'items' => ['nullable', 'array'],
             'items.*.item_id' => ['required_with:items', 'integer', 'exists:bodega_entrega_items,id'],
             'items.*.cantidad' => ['required_with:items', 'integer', 'min:1'],
+            'no_devueltos' => ['nullable', 'array'],
+            'no_devueltos.*.item_id' => ['required_with:no_devueltos', 'integer', 'exists:bodega_entrega_items,id'],
+            'no_devueltos.*.cantidad' => ['required_with:no_devueltos', 'integer', 'min:1'],
+            'no_devueltos.*.precio_unitario' => ['nullable', 'numeric', 'min:0'],
+            'descontar_faltantes' => ['nullable', 'boolean'],
+            'cuotas_totales' => ['nullable', 'integer', 'min:1', 'max:60'],
+            'fecha_inicio' => ['nullable', 'date'],
+            'descripcion' => ['nullable', 'string', 'max:500'],
         ]);
 
         try {
             $actualizada = $bodegaService->registrarDevolucion(
                 $entrega,
                 $data['items'] ?? [],
-                Auth::id()
+                Auth::id(),
+                [
+                    'no_devueltos' => $data['no_devueltos'] ?? [],
+                    'descontar_faltantes' => (bool) ($data['descontar_faltantes'] ?? false),
+                    'cuotas_totales' => $data['cuotas_totales'] ?? 1,
+                    'fecha_inicio' => $data['fecha_inicio'] ?? now()->toDateString(),
+                    'descripcion' => $data['descripcion'] ?? null,
+                ]
             );
+
+            $msg = 'Devolución registrada.';
+            if ($actualizada->devuelta_at) {
+                $msg = $actualizada->grupo_descuento_faltante
+                    ? 'Boleta cerrada. Lo no entregado se descontó en planilla.'
+                    : 'Boleta cerrada: se devolvió todo el equipo.';
+            } elseif (!empty($data['no_devueltos'])) {
+                $msg = 'Devolución parcial registrada. Lo no entregado quedó pendiente o descontado.';
+            } else {
+                $msg = 'Devolución parcial registrada. La boleta sigue pendiente.';
+            }
 
             return response()->json([
                 'success' => true,
-                'message' => $actualizada->devuelta_at
-                    ? 'Boleta cerrada: se devolvió todo el equipo.'
-                    : 'Devolución parcial registrada. La boleta sigue pendiente.',
+                'message' => $msg,
                 'data' => $actualizada,
             ]);
         } catch (\InvalidArgumentException $e) {

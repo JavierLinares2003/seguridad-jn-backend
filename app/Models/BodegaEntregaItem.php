@@ -20,6 +20,7 @@ class BodegaEntregaItem extends Model
         'variante_id',
         'cantidad',
         'cantidad_devuelta',
+        'cantidad_no_devuelta',
         'precio_unitario',
         'subtotal',
         'movimiento_id',
@@ -28,6 +29,7 @@ class BodegaEntregaItem extends Model
     protected $casts = [
         'cantidad' => 'integer',
         'cantidad_devuelta' => 'integer',
+        'cantidad_no_devuelta' => 'integer',
         'precio_unitario' => 'decimal:2',
         'subtotal' => 'decimal:2',
     ];
@@ -36,7 +38,7 @@ class BodegaEntregaItem extends Model
 
     public function getCantidadPendienteAttribute(): int
     {
-        return max(0, (int) $this->cantidad - (int) $this->cantidad_devuelta);
+        return max(0, (int) $this->cantidad - (int) $this->cantidad_devuelta - (int) $this->cantidad_no_devuelta);
     }
 
     public function entrega(): BelongsTo

@@ -9,6 +9,11 @@ use Illuminate\Support\Facades\DB;
 
 class PrestamoService
 {
+    public static function calcularTotalConInteres(float $capital, float $tasa = 0): float
+    {
+        return round($capital * (1 + $tasa / 100), 2);
+    }
+
     /**
      * Genera las cuotas mensuales automáticamente para un préstamo.
      *
@@ -25,7 +30,10 @@ class PrestamoService
         $cuotasGeneradas = 0;
         $fechaPago = Carbon::parse($prestamo->fecha_primer_pago);
         $n = (int) $prestamo->cuotas_totales;
-        $totalEsperado = round((float) $prestamo->monto_total * (1 + ((float) ($prestamo->tasa_interes ?? 0) / 100)), 2);
+        $totalEsperado = self::calcularTotalConInteres(
+            (float) $prestamo->monto_total,
+            (float) ($prestamo->tasa_interes ?? 0)
+        );
 
         if (is_array($montos) && count($montos) === $n) {
             $suma = round(array_sum(array_map('floatval', $montos)), 2);

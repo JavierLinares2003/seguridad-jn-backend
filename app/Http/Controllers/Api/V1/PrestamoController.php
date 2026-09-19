@@ -59,8 +59,10 @@ class PrestamoController extends Controller
         $cuotasMontos = $data['cuotas_montos'] ?? null;
         unset($data['cuotas_montos']);
 
-        // Set saldo_pendiente equal to monto_total initially
-        $data['saldo_pendiente'] = $data['monto_total'];
+        $data['saldo_pendiente'] = PrestamoService::calcularTotalConInteres(
+            (float) $data['monto_total'],
+            (float) ($data['tasa_interes'] ?? 0)
+        );
 
         // Set aprobado_por_user_id to current user
         $data['aprobado_por_user_id'] = auth()->id();

@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Personal;
 use App\Models\PersonalPermiso;
+use App\Models\PersonalVacacion;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -17,7 +19,10 @@ class PersonalPermisoController extends Controller
      */
     public function index(Request $request, Personal $personal): JsonResponse
     {
-        $query = $personal->permisos()->with('registradoPor:id,name');
+        $query = $personal->permisos()->with([
+            'registradoPor:id,name',
+            'reposiciones:id,permiso_reposicion_id,fecha_asistencia,horas_reposicion',
+        ]);
 
         if ($request->filled('tipo')) {
             $query->where('tipo', $request->input('tipo'));
@@ -49,12 +54,20 @@ class PersonalPermisoController extends Controller
             'fecha_fin'         => 'nullable|date|after_or_equal:fecha_inicio',
             'descripcion'       => 'required|string|max:1000',
             'observaciones'     => 'nullable|string|max:1000',
+            'compensa_con'      => 'nullable|in:reposicion,vacaciones',
+            'fecha_recuperacion'=> 'nullable|date',
             'documento'         => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ]);
 
         $docData = [];
         if ($request->hasFile('documento')) {
             $docData = $this->guardarDocumento($request, $personal->id);
+        }
+
+        $compensaCon = $data['compensa_con'] ?? 'reposicion';
+        $fechaRecuperacion = $data['fecha_recuperacion'] ?? null;
+        if ($compensaCon === 'vacaciones' && empty($fechaRecuperacion)) {
+            $fechaRecuperacion = $data['fecha_inicio'];
         }
 
         $permiso = PersonalPermiso::create(array_merge([
@@ -65,10 +78,17 @@ class PersonalPermisoController extends Controller
             'fecha_fin'              => $data['fecha_fin'] ?? null,
             'descripcion'            => $data['descripcion'],
             'observaciones'          => $data['observaciones'] ?? null,
+            'compensa_con'           => $compensaCon,
+            'fecha_recuperacion'     => $fechaRecuperacion,
             'registrado_por_user_id' => auth()->id(),
         ], $docData));
 
-        $permiso->load('registradoPor:id,name');
+        $this->vincularVacacionSiAplica($personal, $permiso);
+
+        $permiso->load([
+            'registradoPor:id,name',
+            'reposiciones:id,permiso_reposicion_id,fecha_asistencia,horas_reposicion',
+        ]);
 
         return response()->json([
             'success' => true,
@@ -95,7 +115,7 @@ class PersonalPermisoController extends Controller
 
         $reposiciones = $permiso->reposiciones->map(fn ($a) => [
             'id'               => $a->id,
-            'fecha'            => $a->fecha_asistencia?->format('Y-m-d'),
+            'fecha'            => $this->formatFecha($a->fecha_asistencia),
             'horas_reposicion' => $a->horas_reposicion,
             'proyecto'         => $a->asignacion?->proyecto?->nombre_proyecto,
         ]);
@@ -125,6 +145,8 @@ class PersonalPermisoController extends Controller
             'fecha_fin'         => 'nullable|date|after_or_equal:fecha_inicio',
             'descripcion'       => 'sometimes|string|max:1000',
             'observaciones'     => 'nullable|string|max:1000',
+            'compensa_con'      => 'sometimes|in:reposicion,vacaciones',
+            'fecha_recuperacion'=> 'nullable|date',
             'documento'         => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
             'eliminar_documento'=> 'nullable|boolean',
         ]);
@@ -146,7 +168,15 @@ class PersonalPermisoController extends Controller
 
         unset($data['documento'], $data['eliminar_documento']);
         $permiso->update($data);
-        $permiso->load('registradoPor:id,name');
+
+        if (($permiso->compensa_con === 'vacaciones' || $permiso->fecha_recuperacion) && ! $permiso->vacacion_id) {
+            $this->vincularVacacionSiAplica($personal, $permiso);
+        }
+
+        $permiso->load([
+            'registradoPor:id,name',
+            'reposiciones:id,permiso_reposicion_id,fecha_asistencia,horas_reposicion',
+        ]);
 
         return response()->json([
             'success' => true,
@@ -215,18 +245,67 @@ class PersonalPermisoController extends Controller
         ];
     }
 
+    private function vincularVacacionSiAplica(Personal $personal, PersonalPermiso $permiso): void
+    {
+        if ($permiso->vacacion_id || $permiso->compensa_con !== 'vacaciones' || $permiso->tipo !== 'dias') {
+            return;
+        }
+
+        $dias = max(1, (int) ceil((float) $permiso->cantidad_aprobada));
+        $vacacion = PersonalVacacion::create([
+            'personal_id'            => $personal->id,
+            'anio'                   => Carbon::parse($permiso->fecha_inicio)->year,
+            'fecha_inicio'           => $permiso->fecha_inicio,
+            'fecha_fin'              => $permiso->fecha_fin,
+            'dias_solicitados'       => $dias,
+            'dias_aprobados'         => $dias,
+            'descripcion'            => 'Permiso tomado como vacaciones: ' . ($permiso->descripcion ?: 'sin detalle'),
+            'observaciones'          => 'Generado desde permiso #' . $permiso->id,
+            'registrado_por_user_id' => auth()->id(),
+        ]);
+
+        $permiso->update(['vacacion_id' => $vacacion->id]);
+    }
+
     private function formatPermiso(PersonalPermiso $permiso): array
     {
         $baseUrl = config('app.url');
+        $reposiciones = $permiso->relationLoaded('reposiciones') ? $permiso->reposiciones : collect();
+        $fechasRecuperacion = $reposiciones
+            ->pluck('fecha_asistencia')
+            ->filter()
+            ->map(fn ($f) => $this->formatFecha($f))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $fechaManual = $this->formatFecha($permiso->fecha_recuperacion);
+        if ($fechaManual && ! in_array($fechaManual, $fechasRecuperacion, true)) {
+            $fechasRecuperacion[] = $fechaManual;
+        }
+
+        $repuestas = $permiso->relationLoaded('reposiciones')
+            ? (float) $reposiciones->sum('horas_reposicion')
+            : (float) $permiso->horas_repuestas;
+
+        $esVacaciones = $permiso->compensa_con === 'vacaciones';
+        $recuperado = $esVacaciones || (bool) $permiso->fecha_recuperacion || $repuestas >= (float) $permiso->cantidad_aprobada;
+        $saldo = $recuperado ? 0 : max(0, (float) $permiso->cantidad_aprobada - $repuestas);
 
         return [
             'id'                => $permiso->id,
             'tipo'              => $permiso->tipo,
             'cantidad_aprobada' => $permiso->cantidad_aprobada,
-            'horas_repuestas'   => $permiso->horas_repuestas,
-            'saldo_pendiente'   => $permiso->saldo_pendiente,
-            'fecha_inicio'      => $permiso->fecha_inicio?->format('Y-m-d'),
-            'fecha_fin'         => $permiso->fecha_fin?->format('Y-m-d'),
+            'horas_repuestas'   => $repuestas,
+            'saldo_pendiente'   => $saldo,
+            'compensa_con'      => $permiso->compensa_con ?: 'reposicion',
+            'fecha_recuperacion'=> $this->formatFecha($permiso->fecha_recuperacion),
+            'fechas_recuperacion' => $fechasRecuperacion,
+            'recuperado'        => $recuperado,
+            'es_vacaciones'     => $esVacaciones,
+            'fecha_inicio'      => $this->formatFecha($permiso->fecha_inicio),
+            'fecha_fin'         => $this->formatFecha($permiso->fecha_fin),
             'descripcion'       => $permiso->descripcion,
             'observaciones'     => $permiso->observaciones,
             'tiene_documento'   => $permiso->tiene_documento,
@@ -240,7 +319,25 @@ class PersonalPermisoController extends Controller
                 'id'   => $permiso->registradoPor->id,
                 'name' => $permiso->registradoPor->name,
             ] : null,
-            'created_at'        => $permiso->created_at?->format('Y-m-d H:i:s'),
+            'created_at'        => $this->formatFechaHora($permiso->created_at),
         ];
+    }
+
+    private function formatFecha(mixed $fecha): ?string
+    {
+        if ($fecha === null || $fecha === '') {
+            return null;
+        }
+
+        return Carbon::parse($fecha)->format('Y-m-d');
+    }
+
+    private function formatFechaHora(mixed $fecha): ?string
+    {
+        if ($fecha === null || $fecha === '') {
+            return null;
+        }
+
+        return Carbon::parse($fecha)->format('Y-m-d H:i:s');
     }
 }

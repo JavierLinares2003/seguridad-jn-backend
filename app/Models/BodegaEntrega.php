@@ -24,22 +24,29 @@ class BodegaEntrega extends Model
         'tipo',
         'cobrar',
         'monto_total',
+        'cuotas_totales',
+        'monto_cuota',
         'motivo_reposicion',
         'cambio_por_dano',
         'variante_entrada_dano_id',
         'cantidad_entrada_dano',
         'observaciones',
         'fecha_entrega',
+        'fecha_primer_pago',
         'devuelta_at',
         'registrado_por_user_id',
         'grupo_uniforme',
+        'grupo_descuento_faltante',
     ];
 
     protected $casts = [
         'cobrar' => 'boolean',
         'cambio_por_dano' => 'boolean',
         'monto_total' => 'decimal:2',
+        'monto_cuota' => 'decimal:2',
+        'cuotas_totales' => 'integer',
         'fecha_entrega' => 'date',
+        'fecha_primer_pago' => 'date',
         'devuelta_at' => 'datetime',
     ];
 
@@ -88,6 +95,14 @@ class BodegaEntrega extends Model
 
     public function getPendienteDevolucionAttribute(): bool
     {
-        return $this->devuelta_at === null;
+        if ($this->devuelta_at) {
+            return false;
+        }
+
+        if ($this->relationLoaded('items')) {
+            return $this->items->contains(fn ($it) => $it->cantidad_pendiente > 0);
+        }
+
+        return true;
     }
 }

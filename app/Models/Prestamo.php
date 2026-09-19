@@ -6,6 +6,14 @@ use App\Traits\AuditableModel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * @property float $monto_total
+ * @property float $saldo_pendiente
+ * @property float|null $tasa_interes
+ * @property-read float $monto_interes
+ * @property-read float $monto_con_interes
+ * @property-read float $porcentaje_pagado
+ */
 class Prestamo extends Model
 {
     use HasFactory, AuditableModel;
@@ -46,6 +54,17 @@ class Prestamo extends Model
         'monto_cuota' => 'decimal:2',
     ];
 
+    protected $appends = [
+        'monto_interes',
+        'monto_con_interes',
+        'porcentaje_pagado',
+    ];
+
+    public static function totalConInteres(float $capital, float $tasa = 0): float
+    {
+        return \App\Services\PrestamoService::calcularTotalConInteres($capital, $tasa);
+    }
+
     // Relationships
     public function personal()
     {
@@ -85,11 +104,25 @@ class Prestamo extends Model
         return $labels[$this->estado_prestamo] ?? $this->estado_prestamo;
     }
 
+    public function getMontoInteresAttribute(): float
+    {
+        return round((float) $this->monto_total * ((float) ($this->tasa_interes ?? 0) / 100), 2);
+    }
+
+    public function getMontoConInteresAttribute(): float
+    {
+        return self::totalConInteres((float) $this->monto_total, (float) ($this->tasa_interes ?? 0));
+    }
+
     public function getPorcentajePagadoAttribute()
     {
-        if ($this->monto_total == 0) return 0;
-        
-        $montoPagado = $this->monto_total - $this->saldo_pendiente;
-        return round(($montoPagado / $this->monto_total) * 100, 2);
+        $total = $this->monto_con_interes;
+        if ($total == 0) {
+            return 0;
+        }
+
+        $montoPagado = $total - (float) $this->saldo_pendiente;
+
+        return max(0, min(100, round(($montoPagado / $total) * 100, 2)));
     }
 }
