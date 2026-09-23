@@ -370,6 +370,10 @@ class Personal extends Model
             return $query->whereIn('estado', ['suspendido', 'no_contratar', 'inactivo']);
         }
 
+        if ($estado === 'eliminados') {
+            return $query->onlyTrashed();
+        }
+
         return $query->where('estado', $estado);
     }
 
