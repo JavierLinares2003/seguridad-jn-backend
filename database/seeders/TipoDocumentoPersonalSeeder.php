@@ -56,6 +56,16 @@ class TipoDocumentoPersonalSeeder extends Seeder
                 'extensiones_permitidas' => ['pdf', 'jpg', 'jpeg', 'png'],
             ],
             [
+                'nombre' => 'Recibo de Luz',
+                'requiere_vencimiento' => false,
+                'extensiones_permitidas' => ['pdf', 'jpg', 'jpeg', 'png'],
+            ],
+            [
+                'nombre' => 'Recibo de Agua',
+                'requiere_vencimiento' => false,
+                'extensiones_permitidas' => ['pdf', 'jpg', 'jpeg', 'png'],
+            ],
+            [
                 'nombre' => 'Constancia de Estudios',
                 'requiere_vencimiento' => false,
                 'extensiones_permitidas' => ['pdf', 'jpg', 'jpeg', 'png'],

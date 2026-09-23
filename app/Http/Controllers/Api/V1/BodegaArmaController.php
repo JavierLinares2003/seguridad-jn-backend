@@ -47,7 +47,7 @@ class BodegaArmaController extends Controller implements HasMiddleware
                 'proyecto:id,nombre_proyecto,correlativo',
                 'personal:id,nombres,apellidos',
             ])
-            ->orderBy('tipo')
+            ->orderByRaw("COALESCE(NULLIF(regexp_replace(COALESCE(codigo_interno, ''), '[^0-9]', '', 'g'), '')::integer, 2147483647)")
             ->orderBy('codigo');
 
         if ($request->filled('tipo')) {

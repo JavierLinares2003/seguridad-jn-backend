@@ -193,9 +193,13 @@ class BodegaService
     public function registrarMovimiento(array $data): BodegaMovimiento
     {
         $tipo = $data['tipo'];
-        $cantidad = (int) $data['cantidad'];
+        $cantidad = (int) ($data['cantidad'] ?? 0);
 
-        if ($cantidad <= 0) {
+        if ($tipo === 'ajuste' && !array_key_exists('existencia_nueva', $data)) {
+            $data['existencia_nueva'] = $cantidad;
+        }
+
+        if ($tipo !== 'ajuste' && $cantidad <= 0) {
             throw new InvalidArgumentException('La cantidad debe ser mayor a 0.');
         }
 

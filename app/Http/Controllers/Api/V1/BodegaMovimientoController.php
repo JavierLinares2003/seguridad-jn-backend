@@ -83,8 +83,8 @@ class BodegaMovimientoController extends Controller implements HasMiddleware
         $data = $request->validate([
             'variante_id' => ['required', 'exists:bodega_variantes,id'],
             'tipo' => ['required', 'in:ingreso,egreso,ajuste,ajuste_inicial,merma'],
-            'cantidad' => ['required_unless:tipo,ajuste', 'integer', 'min:1'],
-            'existencia_nueva' => ['required_if:tipo,ajuste', 'integer', 'min:0'],
+            'cantidad' => ['required_unless:tipo,ajuste', 'nullable', 'integer', 'min:0'],
+            'existencia_nueva' => ['required_without:cantidad', 'nullable', 'integer', 'min:0'],
             'fecha_movimiento' => ['nullable', 'date'],
             'personal_id' => ['nullable', 'exists:personal,id'],
             'proyecto_id' => ['nullable', 'exists:proyectos,id'],
