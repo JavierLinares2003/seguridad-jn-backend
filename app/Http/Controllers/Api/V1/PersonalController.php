@@ -97,6 +97,53 @@ class PersonalController extends Controller
     }
 
     /**
+     * Resumen de cuentas para contabilidad.
+     * Separa efectivo de transferencia/depósito y marca cuentas incompletas.
+     *
+     * GET /api/v1/personal/resumen-cuentas
+     */
+    public function resumenCuentas(Request $request): JsonResponse
+    {
+        if (!PersonalAdministrativoGuard::tiene($request->user(), 'view-personal-sensible')) {
+            abort(403, 'No autorizado.');
+        }
+
+        $base = $this->queryResumenCuentas($request);
+        $forma = $request->input('forma');
+
+        $resumen = [
+            'total' => (clone $base)->count(),
+            'efectivo' => (clone $base)->whereHas('tipoPago', fn ($q) => $q->where('nombre', 'ilike', '%efectivo%'))->count(),
+            'banco' => (clone $base)->where(fn ($q) => $this->wherePagoBanco($q))->count(),
+            'cheque' => (clone $base)->whereHas('tipoPago', fn ($q) => $q->where('nombre', 'ilike', '%cheque%'))->count(),
+            'sin_definir' => (clone $base)->whereNull('tipo_pago_id')->count(),
+            'incompletos' => (clone $base)
+                ->where(fn ($q) => $this->wherePagoBanco($q))
+                ->where(fn ($q) => $this->whereCuentaIncompleta($q))
+                ->count(),
+        ];
+
+        $lista = clone $base;
+        $this->aplicarFiltroForma($lista, is_string($forma) ? $forma : null);
+
+        $perPage = min(max((int) $request->input('per_page', 25), 1), 2000);
+        $paginado = $lista->orderBy('apellidos')->orderBy('nombres')->paginate($perPage);
+        $paginado->getCollection()->transform(fn (Personal $persona) => $this->filaCuenta($persona));
+
+        return response()->json([
+            'success' => true,
+            'data' => $paginado->items(),
+            'resumen' => $resumen,
+            'meta' => [
+                'current_page' => $paginado->currentPage(),
+                'last_page' => $paginado->lastPage(),
+                'per_page' => $paginado->perPage(),
+                'total' => $paginado->total(),
+            ],
+        ]);
+    }
+
+    /**
      * Store a newly created personal.
      *
      * POST /api/v1/personal
@@ -649,6 +696,104 @@ class PersonalController extends Controller
             'message' => 'Reingreso registrado. El calendario histórico se conserva.',
             'data' => new PersonalResource($personal->fresh(['talla', 'tipoSangre', 'departamento'])),
         ]);
+    }
+
+    private function queryResumenCuentas(Request $request)
+    {
+        $user = $request->user();
+        $query = Personal::query()
+            ->with(['tipoPago:id,nombre', 'departamento:id,nombre'])
+            ->buscar($request->input('buscar'))
+            ->byEstado($request->input('estado', 'activo'));
+
+        $veAdministrativos = PersonalAdministrativoGuard::tiene($user, 'view-personal-administrativo')
+            || (
+                PersonalAdministrativoGuard::tiene($user, 'view-planillas')
+                && PersonalAdministrativoGuard::tiene($user, 'view-personal-sensible')
+                && !PersonalAdministrativoGuard::tiene($user, 'manage-asistencia')
+            );
+
+        if (!$veAdministrativos) {
+            $query->operativo();
+        }
+
+        return $query;
+    }
+
+    private function wherePagoBanco($query): void
+    {
+        $query->whereHas('tipoPago', function ($q) {
+            $q->where('nombre', 'ilike', '%transfer%')
+                ->orWhere('nombre', 'ilike', '%depósito%')
+                ->orWhere('nombre', 'ilike', '%deposito%');
+        });
+    }
+
+    private function whereCuentaIncompleta($query): void
+    {
+        $query->where(function ($q) {
+            $q->whereNull('banco')
+                ->orWhereRaw("btrim(banco) = ''")
+                ->orWhereNull('numero_cuenta')
+                ->orWhereRaw("btrim(numero_cuenta) = ''");
+        });
+    }
+
+    private function aplicarFiltroForma($query, ?string $forma): void
+    {
+        match ($forma) {
+            'efectivo' => $query->whereHas('tipoPago', fn ($q) => $q->where('nombre', 'ilike', '%efectivo%')),
+            'banco' => $this->wherePagoBanco($query),
+            'cheque' => $query->whereHas('tipoPago', fn ($q) => $q->where('nombre', 'ilike', '%cheque%')),
+            'sin_definir' => $query->whereNull('tipo_pago_id'),
+            'incompleto' => $query
+                ->where(fn ($q) => $this->wherePagoBanco($q))
+                ->where(fn ($q) => $this->whereCuentaIncompleta($q)),
+            default => null,
+        };
+    }
+
+    private function clasificarFormaPago(?string $nombre): string
+    {
+        $texto = mb_strtolower(trim((string) $nombre));
+        if ($texto === '') {
+            return 'sin_definir';
+        }
+        if (str_contains($texto, 'efectivo')) {
+            return 'efectivo';
+        }
+        if (str_contains($texto, 'cheque')) {
+            return 'cheque';
+        }
+        if (str_contains($texto, 'transfer') || str_contains($texto, 'depósito') || str_contains($texto, 'deposito')) {
+            return 'banco';
+        }
+
+        return 'otro';
+    }
+
+    private function filaCuenta(Personal $persona): array
+    {
+        $tipo = $persona->tipoPago?->nombre;
+        $forma = $this->clasificarFormaPago($tipo);
+        $tieneCuenta = filled(trim((string) $persona->banco)) && filled(trim((string) $persona->numero_cuenta));
+        $muestraCuenta = $forma !== 'efectivo';
+
+        return [
+            'id' => $persona->id,
+            'nombre_completo' => $persona->nombre_completo,
+            'puesto' => $persona->puesto,
+            'estado' => $persona->estado,
+            'departamento' => $persona->departamento?->nombre,
+            'tipo_pago' => $tipo,
+            'forma' => $forma,
+            'banco' => $muestraCuenta ? $persona->banco : null,
+            'tipo_cuenta' => $muestraCuenta ? $persona->tipo_cuenta : null,
+            'numero_cuenta' => $muestraCuenta ? $persona->numero_cuenta : null,
+            'nombre_cuenta' => $muestraCuenta ? $persona->nombre_cuenta : null,
+            'cuenta_completa' => $forma !== 'banco' || $tieneCuenta,
+            'cuenta_ignorada' => $forma === 'efectivo' && (filled($persona->banco) || filled($persona->numero_cuenta)),
+        ];
     }
 
     private function payloadPersonal(array $validated): array

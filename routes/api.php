@@ -225,6 +225,10 @@ Route::prefix('v1')->group(function () {
             Route::post('/pre-alta', [PersonalController::class, 'storePreAlta'])
                 ->name('api.v1.personal.preAlta');
 
+            Route::get('/resumen-cuentas', [PersonalController::class, 'resumenCuentas'])
+                ->middleware('api.permission:view-personal-sensible')
+                ->name('api.v1.personal.resumen-cuentas');
+
             Route::get('/{personal}', [PersonalController::class, 'show'])
                 ->name('api.v1.personal.show');
 
