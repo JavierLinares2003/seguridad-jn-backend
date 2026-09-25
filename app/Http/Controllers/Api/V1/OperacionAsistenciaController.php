@@ -657,6 +657,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 'nombre_completo' => $p->nombre_completo,
                 'dpi' => $p->dpi,
                 'telefono' => $p->telefono,
+                'estado' => $p->estado,
                 'asistencia' => $asistencia ? [
                     'id' => $asistencia->id,
                     'hora_entrada' => $asistencia->hora_entrada?->format('H:i'),
@@ -737,6 +738,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                     'nombre_completo' => $p->nombre_completo,
                     'dpi' => $p->dpi,
                     'telefono' => $p->telefono,
+                    'estado' => $p->estado,
                     'asistencia' => $asistencia ? [
                         'id' => $asistencia->id,
                         'hora_entrada' => $asistencia->hora_entrada?->format('H:i'),
@@ -797,6 +799,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                     'nombre_completo' => $p->nombre_completo,
                     'dpi' => $p->dpi,
                     'telefono' => $p->telefono,
+                    'estado' => $p->estado,
                     'asistencia' => $asistencia ? [
                         'id' => $asistencia->id,
                         'hora_entrada' => $asistencia->hora_entrada?->format('H:i'),
