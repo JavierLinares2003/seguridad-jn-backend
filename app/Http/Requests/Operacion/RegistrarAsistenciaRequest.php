@@ -34,6 +34,8 @@ class RegistrarAsistenciaRequest extends FormRequest
                 'required_without:asistencias.*.personal_asignado_id',
             ],
 
+            'asistencias.*.hora_entrada' => ['nullable', 'date_format:H:i'],
+            'asistencias.*.hora_salida' => ['nullable', 'date_format:H:i'],
             'asistencias.*.fecha_asistencia' => [
                 'required',
                 'date',

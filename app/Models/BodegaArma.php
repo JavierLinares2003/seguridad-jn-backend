@@ -20,6 +20,11 @@ class BodegaArma extends Model
         'escopeta' => 'Escopeta',
     ];
 
+    public const STATUS_PROCESO = [
+        'sin_proceso' => 'Sin proceso',
+        'en_proceso' => 'En proceso',
+    ];
+
     public const ESTADOS = [
         'en_bodega' => 'En bodega',
         'asignada' => 'Asignada',
@@ -45,6 +50,7 @@ class BodegaArma extends Model
         'personal_id',
         'proyecto_id',
         'estado',
+        'status_proceso',
         'numero_denuncia',
         'observaciones',
     ];
@@ -53,7 +59,7 @@ class BodegaArma extends Model
         'vencimiento' => 'date',
     ];
 
-    protected $appends = ['tipo_label', 'estado_label', 'alerta_vencimiento'];
+    protected $appends = ['tipo_label', 'estado_label', 'status_proceso_label', 'alerta_vencimiento'];
 
     public function personal(): BelongsTo
     {
@@ -73,6 +79,11 @@ class BodegaArma extends Model
     public function getEstadoLabelAttribute(): string
     {
         return self::ESTADOS[$this->estado] ?? $this->estado;
+    }
+
+    public function getStatusProcesoLabelAttribute(): string
+    {
+        return self::STATUS_PROCESO[$this->status_proceso] ?? 'Sin proceso';
     }
 
     public function getAlertaVencimientoAttribute(): ?string

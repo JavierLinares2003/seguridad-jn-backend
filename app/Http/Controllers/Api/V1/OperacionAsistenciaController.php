@@ -38,6 +38,9 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             new Middleware('permission:manage-asistencia|manage-asistencia-administrativa', only: [
                 'store', 'update', 'destroy',
             ]),
+            new Middleware('permission:manage-asistencia-administrativa', only: [
+                'guardarHorarioAdministrativo',
+            ]),
             new Middleware('permission:manage-asistencia', only: [
                 'generarDescansos', 'marcarAusencia', 'permisosDisponibles'
             ]),
@@ -1405,6 +1408,32 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         return $fechaAsistencia->isSameDay($ayer);
     }
 
+    public function guardarHorarioAdministrativo(Request $request, int $personal): JsonResponse
+    {
+        $persona = Personal::query()->administrativo()->find($personal);
+        if (!$persona) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Ese personal no es administrativo.',
+            ], 404);
+        }
+
+        $data = $request->validate([
+            'horario_entrada' => ['nullable', 'date_format:H:i'],
+            'horario_salida' => ['nullable', 'date_format:H:i'],
+        ]);
+
+        $persona->update([
+            'horario_entrada' => $data['horario_entrada'] ?? null,
+            'horario_salida' => $data['horario_salida'] ?? null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Horario actualizado.',
+        ]);
+    }
+
     public function administrativaPorFecha(Request $request, string $fecha): JsonResponse
     {
         try {
@@ -1422,7 +1451,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             ->buscar($request->input('buscar'))
             ->orderBy('apellidos')
             ->orderBy('nombres')
-            ->get(['id', 'nombres', 'apellidos', 'puesto', 'estado', 'departamento_id']);
+            ->get(['id', 'nombres', 'apellidos', 'puesto', 'estado', 'departamento_id', 'horario_entrada', 'horario_salida']);
 
         $asistencias = OperacionAsistencia::query()
             ->whereNull('personal_asignado_id')
@@ -1438,11 +1467,18 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 'id' => $p->id,
                 'nombre_completo' => $p->nombre_completo,
                 'puesto' => $p->puesto,
+                'horario_entrada' => $p->horario_entrada ? substr((string) $p->horario_entrada, 0, 5) : null,
+                'horario_salida' => $p->horario_salida ? substr((string) $p->horario_salida, 0, 5) : null,
                 'asistencia' => $asistencia ? [
                     'id' => $asistencia->id,
                     'estado' => $asistencia->estado_dia,
                     'es_descanso' => $asistencia->es_descanso,
                     'es_ausente' => $asistencia->es_ausente,
+                    'hora_entrada' => $asistencia->hora_entrada?->format('H:i'),
+                    'hora_salida' => $asistencia->hora_salida?->format('H:i'),
+                    'llego_tarde' => (bool) $asistencia->llego_tarde,
+                    'minutos_retraso' => (int) $asistencia->minutos_retraso,
+                    'minutos_salida_temprana' => (int) $asistencia->minutos_salida_temprana,
                     'motivo_ausencia' => $asistencia->motivoAusencia,
                     'observaciones' => $asistencia->observaciones,
                 ] : ['id' => null, 'estado' => 'sin_registro'],

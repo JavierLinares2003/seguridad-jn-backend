@@ -222,10 +222,7 @@ class AsistenciaService
 
         $yaCubren = OperacionAsistencia::query()
             ->whereDate('fecha_asistencia', $fecha)
-            ->where(function ($q) {
-                $q->where('es_cobertura', true)
-                    ->orWhereNotNull('personal_id');
-            })
+            ->where('es_cobertura', true)
             ->whereNull('personal_asignado_id')
             ->pluck('personal_id')
             ->filter()
@@ -833,9 +830,6 @@ class AsistenciaService
             ->whereDate('fecha_asistencia', $fecha)
             ->first();
 
-        if ($existente && !$existente->es_cobertura) {
-            throw new \RuntimeException('El cubridor ya tiene asistencia sin puesto ese día.');
-        }
         if ($existente && $existente->es_cobertura && (int) $existente->asistencia_titular_id !== (int) $titular->id) {
             throw new \RuntimeException('El cubridor ya cubrió otro puesto este día.');
         }

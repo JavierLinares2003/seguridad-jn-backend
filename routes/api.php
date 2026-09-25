@@ -476,6 +476,9 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.operaciones.asistencia.departamentos-disponibles');
 
             // Consultas con sub-rutas
+            Route::put('/asistencia/administrativa/horario/{personal}', [OperacionAsistenciaController::class, 'guardarHorarioAdministrativo'])
+                ->name('api.v1.operaciones.asistencia.administrativa.horario');
+
             Route::get('/asistencia/administrativa/{fecha}', [OperacionAsistenciaController::class, 'administrativaPorFecha'])
                 ->name('api.v1.operaciones.asistencia.administrativa');
 

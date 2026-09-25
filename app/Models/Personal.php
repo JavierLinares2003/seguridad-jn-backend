@@ -61,6 +61,8 @@ class Personal extends Model
         'nivel_estudio_id',
         'departamento_id',
         'es_administrativo',
+        'horario_entrada',
+        'horario_salida',
         'vive_en_cuadra',
         'fecha_inicio',
         'fecha_ingreso_original',

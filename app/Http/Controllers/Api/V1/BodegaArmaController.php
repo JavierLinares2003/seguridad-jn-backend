@@ -243,9 +243,14 @@ class BodegaArmaController extends Controller implements HasMiddleware
             'personal_id' => ['nullable', 'exists:personal,id'],
             'proyecto_id' => ['nullable', 'exists:proyectos,id'],
             'estado' => ['nullable', Rule::in(array_keys(BodegaArma::ESTADOS))],
+            'status_proceso' => ['nullable', Rule::in(array_keys(BodegaArma::STATUS_PROCESO))],
             'numero_denuncia' => ['nullable', 'string', 'max:80'],
             'observaciones' => ['nullable', 'string'],
         ]);
+
+        if (empty($data['status_proceso'])) {
+            $data['status_proceso'] = 'sin_proceso';
+        }
 
         if (empty($data['estado'])) {
             $data['estado'] = (!empty($data['personal_id']) || !empty($data['proyecto_id']) || !empty($data['responsable_nombre']))
