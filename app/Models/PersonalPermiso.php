@@ -25,9 +25,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $documento_extension
  * @property int|null $documento_tamanio_kb
  * @property-read float $horas_repuestas
+ * @property-read float $horas_reposicion_programadas
  * @property-read float $saldo_pendiente
  * @property-read bool $tiene_documento
  * @property-read bool $recuperado
+ * @property-read bool $es_constancia
+ * @property-read bool $es_vacaciones
  */
 class PersonalPermiso extends Model
 {
@@ -90,6 +93,13 @@ class PersonalPermiso extends Model
         return $this->hasMany(OperacionAsistencia::class, 'permiso_reposicion_id');
     }
 
+    /** Fechas programadas / declaradas de reposición del permiso. */
+    public function fechasReposicion(): HasMany
+    {
+        return $this->hasMany(PersonalPermisoFechaReposicion::class, 'personal_permiso_id')
+            ->orderBy('fecha');
+    }
+
     // ─── Accessors ────────────────────────────────────────────────────────────
 
     public function getHorasRepuestasAttribute(): float
@@ -97,13 +107,38 @@ class PersonalPermiso extends Model
         return (float) $this->reposiciones()->sum('horas_reposicion');
     }
 
+    public function getHorasReposicionProgramadasAttribute(): float
+    {
+        if ($this->relationLoaded('fechasReposicion')) {
+            return (float) $this->fechasReposicion->sum('horas');
+        }
+
+        return (float) $this->fechasReposicion()->sum('horas');
+    }
+
+    public function getEsVacacionesAttribute(): bool
+    {
+        return $this->compensa_con === 'vacaciones';
+    }
+
+    public function getEsConstanciaAttribute(): bool
+    {
+        return $this->compensa_con === 'constancia';
+    }
+
     public function getSaldoPendienteAttribute(): float
     {
-        if ($this->compensa_con === 'vacaciones' || $this->fecha_recuperacion) {
+        if ($this->compensa_con === 'vacaciones' || $this->compensa_con === 'constancia') {
             return 0;
         }
 
-        return max(0, $this->cantidad_aprobada - $this->horas_repuestas);
+        if ($this->fecha_recuperacion) {
+            return 0;
+        }
+
+        $cubierto = $this->horas_repuestas + $this->horas_reposicion_programadas;
+
+        return max(0, $this->cantidad_aprobada - $cubierto);
     }
 
     public function getRecuperadoAttribute(): bool
@@ -123,11 +158,14 @@ class PersonalPermiso extends Model
     {
         return $query
             ->where(function ($q) {
-                $q->whereNull('compensa_con')->orWhere('compensa_con', '!=', 'vacaciones');
+                $q->whereNull('compensa_con')
+                    ->orWhereNotIn('compensa_con', ['vacaciones', 'constancia']);
             })
             ->whereNull('fecha_recuperacion')
             ->whereRaw(
-                '(SELECT COALESCE(SUM(horas_reposicion),0) FROM operaciones_asistencia WHERE permiso_reposicion_id = personal_permisos.id) < personal_permisos.cantidad_aprobada'
+                '(SELECT COALESCE(SUM(horas_reposicion),0) FROM operaciones_asistencia WHERE permiso_reposicion_id = personal_permisos.id)
+                 + (SELECT COALESCE(SUM(horas),0) FROM personal_permiso_fechas_reposicion WHERE personal_permiso_id = personal_permisos.id)
+                 < personal_permisos.cantidad_aprobada'
             );
     }
 

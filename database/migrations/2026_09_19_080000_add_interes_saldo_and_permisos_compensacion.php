@@ -9,12 +9,24 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('personal_permisos', function (Blueprint $table) {
-            $table->string('compensa_con', 20)->default('reposicion')->after('observaciones');
-            $table->date('fecha_recuperacion')->nullable()->after('compensa_con');
-            $table->foreignId('vacacion_id')->nullable()->after('fecha_recuperacion')
-                ->constrained('personal_vacaciones')->nullOnDelete();
-        });
+        // Columnas de compensación de permisos: pueden existir vía
+        // 2026_09_28_150000_add_permisos_constancia_and_fechas_reposicion.
+        if (! Schema::hasColumn('personal_permisos', 'compensa_con')) {
+            Schema::table('personal_permisos', function (Blueprint $table) {
+                $table->string('compensa_con', 20)->default('reposicion')->after('observaciones');
+            });
+        }
+        if (! Schema::hasColumn('personal_permisos', 'fecha_recuperacion')) {
+            Schema::table('personal_permisos', function (Blueprint $table) {
+                $table->date('fecha_recuperacion')->nullable()->after('compensa_con');
+            });
+        }
+        if (! Schema::hasColumn('personal_permisos', 'vacacion_id')) {
+            Schema::table('personal_permisos', function (Blueprint $table) {
+                $table->foreignId('vacacion_id')->nullable()->after('fecha_recuperacion')
+                    ->constrained('personal_vacaciones')->nullOnDelete();
+            });
+        }
 
         Schema::table('bodega_entregas', function (Blueprint $table) {
             $table->unsignedInteger('cuotas_totales')->nullable()->after('monto_total');

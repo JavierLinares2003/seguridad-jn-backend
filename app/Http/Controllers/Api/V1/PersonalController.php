@@ -65,6 +65,14 @@ class PersonalController extends Controller
             ) {
                 abort(403, 'No autorizado.');
             }
+            // Bodega: receptor = operativo; quien entrega = administrativo.
+            if ($request->has('es_administrativo')) {
+                if ($request->boolean('es_administrativo')) {
+                    $query->administrativo();
+                } else {
+                    $query->operativo();
+                }
+            }
         } elseif (!PersonalAdministrativoGuard::tiene($user, 'view-personal-administrativo')) {
             $query->operativo();
         }

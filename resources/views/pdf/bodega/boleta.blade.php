@@ -79,8 +79,8 @@
         </tr>
         @if($entrega->personalOperaciones)
         <tr>
-            <td class="lbl">VÍA OPS:</td>
-            <td class="line">{{ strtoupper($entrega->personalOperaciones->nombres.' '.$entrega->personalOperaciones->apellidos) }} (lleva al punto)</td>
+            <td class="lbl">ENTREGA:</td>
+            <td class="line">{{ strtoupper($entrega->personalOperaciones->nombres.' '.$entrega->personalOperaciones->apellidos) }} (administrativo que entrega)</td>
         </tr>
         @endif
         @if($entrega->cambio_por_dano)

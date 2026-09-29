@@ -42,17 +42,42 @@ class BodegaProductoController extends Controller implements HasMiddleware
         if ($request->boolean('es_uniforme')) {
             $query->where('es_uniforme', true);
         }
-        // Catálogo para armar kit: uniforme + categorías relacionadas
+        // Catálogo para armar kit: uniforme + categorías relacionadas + prendas típicas
+        // (aunque en producción alguna ficha haya quedado sin es_uniforme o con categoría incorrecta).
         if ($request->boolean('para_kit')) {
             $query->where(function ($q) {
                 $q->where('es_uniforme', true)
                     ->orWhereHas('categoria', function ($c) {
-                        $c->whereIn('codigo', [
-                            'uniforme_agentes',
-                            'uniforme_admin',
-                            'sueter_militar',
-                            'accesorios_uniforme',
-                        ]);
+                        $c->where(function ($cat) {
+                            $cat->whereIn('codigo', [
+                                'uniforme_agentes',
+                                'uniforme_admin',
+                                'sueter_militar',
+                                'accesorios_uniforme',
+                            ])
+                                ->orWhere('codigo', 'ilike', '%uniforme%')
+                                ->orWhere('nombre', 'ilike', '%uniforme%');
+                        });
+                    })
+                    ->orWhere(function ($n) {
+                        foreach ([
+                            'camisa',
+                            'pantalon',
+                            'pantalón',
+                            'chaleco',
+                            'blusa',
+                            'polo',
+                            'bota',
+                            'gorra',
+                            'gorgor',
+                            'cincho',
+                            'sueter',
+                            'suéter',
+                            'chumpa',
+                            'columbia',
+                        ] as $term) {
+                            $n->orWhere('nombre', 'ilike', "%{$term}%");
+                        }
                     });
             });
         }

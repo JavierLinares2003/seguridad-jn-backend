@@ -176,6 +176,8 @@ it('calcula minutos tarde y salida temprana con el horario administrativo', func
         expect($tarde->llego_tarde)->toBeTrue();
         expect((int) $tarde->minutos_retraso)->toBe(20);
         expect((int) $tarde->minutos_salida_temprana)->toBe(20);
+        expect((int) $tarde->minutos_entrada_anticipada)->toBe(0);
+        expect((int) $tarde->minutos_salida_tarde)->toBe(0);
 
         $dentro = OperacionAsistencia::create([
             'personal_id' => $admin->id,
@@ -191,6 +193,22 @@ it('calcula minutos tarde y salida temprana con el horario administrativo', func
         expect($dentro->llego_tarde)->toBeFalse();
         expect((int) $dentro->minutos_retraso)->toBe(0);
         expect((int) $dentro->minutos_salida_temprana)->toBe(0);
+
+        $extra = OperacionAsistencia::create([
+            'personal_id' => $admin->id,
+            'personal_asignado_id' => null,
+            'fecha_asistencia' => '2099-06-18',
+            'es_cobertura' => false,
+            'es_descanso' => false,
+            'es_ausente' => false,
+            'hora_entrada' => '07:40',
+            'hora_salida' => '17:25',
+        ])->fresh();
+
+        expect((int) $extra->minutos_retraso)->toBe(0);
+        expect((int) $extra->minutos_salida_temprana)->toBe(0);
+        expect((int) $extra->minutos_entrada_anticipada)->toBe(20);
+        expect((int) $extra->minutos_salida_tarde)->toBe(25);
     } finally {
         try {
             DB::rollBack();

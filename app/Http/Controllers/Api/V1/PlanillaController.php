@@ -9,6 +9,8 @@ use App\Models\Planilla;
 use App\Services\PlanillaService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Maatwebsite\Excel\Facades\Excel;
 
 class PlanillaController extends Controller
@@ -134,6 +136,35 @@ class PlanillaController extends Controller
         // Indexar detalles por personal_id para búsqueda rápida
         $detallesPorPersonal = $planilla->detalles->keyBy('personal_id');
 
+        $personalIds = $planilla->personalSeleccionado->pluck('id')
+            ->merge($planilla->detalles->pluck('personal_id'))
+            ->filter()
+            ->unique()
+            ->values();
+
+        $minutosPorPersonal = collect();
+        if ($personalIds->isNotEmpty()) {
+            $selectExtra = Schema::hasColumn('operaciones_asistencia', 'minutos_entrada_anticipada')
+                ? 'COALESCE(SUM(minutos_entrada_anticipada),0) + COALESCE(SUM(minutos_salida_tarde),0)'
+                : '0';
+
+            $minutosPorPersonal = DB::table('operaciones_asistencia')
+                ->whereIn('personal_id', $personalIds)
+                ->whereNull('personal_asignado_id')
+                ->whereBetween('fecha_asistencia', [
+                    $planilla->periodo_inicio->toDateString(),
+                    $planilla->periodo_fin->toDateString(),
+                ])
+                ->groupBy('personal_id')
+                ->selectRaw("
+                    personal_id,
+                    COALESCE(SUM(minutos_retraso),0) + COALESCE(SUM(minutos_salida_temprana),0) AS minutos_debe_empleado,
+                    {$selectExtra} AS minutos_debe_empresa
+                ")
+                ->get()
+                ->keyBy('personal_id');
+        }
+
         // Agregar transacciones a cada detalle
         $detallesPorPersonal->each(function ($detalle) use ($planilla) {
             $detalle->transacciones = \App\Models\Transaccion::with('registradoPor:id,name')
@@ -148,11 +179,17 @@ class PlanillaController extends Controller
 
         // Construir detalles completos: uno por cada persona seleccionada
         $detalles = $planilla->personalSeleccionado
-            ->map(function ($empleado) use ($detallesPorPersonal, $planilla) {
+            ->map(function ($empleado) use ($detallesPorPersonal, $planilla, $minutosPorPersonal) {
                 $detalle = $detallesPorPersonal->get($empleado->id);
+                $mins = $minutosPorPersonal->get($empleado->id);
+                $minutosEmpleado = (int) ($mins->minutos_debe_empleado ?? 0);
+                $minutosEmpresa = (int) ($mins->minutos_debe_empresa ?? 0);
 
                 if ($detalle) {
-                    return $detalle->toArray() + ['sin_actividad' => false];
+                    $arr = $detalle->toArray() + ['sin_actividad' => false];
+                    $arr['minutos_debe_empleado'] = $minutosEmpleado;
+                    $arr['minutos_debe_empresa'] = $minutosEmpresa;
+                    return $arr;
                 }
 
                 // Persona seleccionada pero sin detalle (planilla antigua o sin actividad)
@@ -187,6 +224,8 @@ class PlanillaController extends Controller
                     'observaciones'          => null,
                     'transacciones'          => [],
                     'sin_actividad'          => true,
+                    'minutos_debe_empleado'  => $minutosEmpleado,
+                    'minutos_debe_empresa'   => $minutosEmpresa,
                 ];
             })
             ->sortBy('personal.apellidos')

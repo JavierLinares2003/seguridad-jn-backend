@@ -1466,6 +1466,36 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
 
         $data = $personal->map(function (Personal $p) use ($asistencias) {
             $asistencia = $asistencias->get($p->id);
+            $minutosRetraso = (int) ($asistencia?->minutos_retraso ?? 0);
+            $minutosSalidaTemprana = (int) ($asistencia?->minutos_salida_temprana ?? 0);
+            $minutosEntradaAnticipada = (int) ($asistencia?->minutos_entrada_anticipada ?? 0);
+            $minutosSalidaTarde = (int) ($asistencia?->minutos_salida_tarde ?? 0);
+
+            // Fallback si el trigger aún no persistió minutos a favor (tolerancia 5).
+            if ($asistencia && $asistencia->hora_entrada && $p->horario_entrada) {
+                if ($minutosEntradaAnticipada === 0) {
+                    $diff = (int) round(
+                        (strtotime(substr((string) $p->horario_entrada, 0, 5)) - strtotime($asistencia->hora_entrada->format('H:i'))) / 60
+                    );
+                    if ($diff > 5) {
+                        $minutosEntradaAnticipada = $diff;
+                    }
+                }
+            }
+            if ($asistencia && $asistencia->hora_salida && $p->horario_salida) {
+                if ($minutosSalidaTarde === 0) {
+                    $diff = (int) round(
+                        (strtotime($asistencia->hora_salida->format('H:i')) - strtotime(substr((string) $p->horario_salida, 0, 5))) / 60
+                    );
+                    if ($diff > 5) {
+                        $minutosSalidaTarde = $diff;
+                    }
+                }
+            }
+
+            $minutosDebeEmpleado = $minutosRetraso + $minutosSalidaTemprana;
+            $minutosDebeEmpresa = $minutosEntradaAnticipada + $minutosSalidaTarde;
+
             return [
                 'id' => $p->id,
                 'nombre_completo' => $p->nombre_completo,
@@ -1480,8 +1510,12 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                     'hora_entrada' => $asistencia->hora_entrada?->format('H:i'),
                     'hora_salida' => $asistencia->hora_salida?->format('H:i'),
                     'llego_tarde' => (bool) $asistencia->llego_tarde,
-                    'minutos_retraso' => (int) $asistencia->minutos_retraso,
-                    'minutos_salida_temprana' => (int) $asistencia->minutos_salida_temprana,
+                    'minutos_retraso' => $minutosRetraso,
+                    'minutos_salida_temprana' => $minutosSalidaTemprana,
+                    'minutos_entrada_anticipada' => $minutosEntradaAnticipada,
+                    'minutos_salida_tarde' => $minutosSalidaTarde,
+                    'minutos_debe_empleado' => $minutosDebeEmpleado,
+                    'minutos_debe_empresa' => $minutosDebeEmpresa,
                     'motivo_ausencia' => $asistencia->motivoAusencia,
                     'observaciones' => $asistencia->observaciones,
                 ] : ['id' => null, 'estado' => 'sin_registro'],
