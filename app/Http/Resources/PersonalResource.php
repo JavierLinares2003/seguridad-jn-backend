@@ -48,6 +48,7 @@ class PersonalResource extends JsonResource
             'fecha_ingreso_original' => $this->fecha_ingreso_original?->format('Y-m-d')
                 ?: $this->fecha_inicio?->format('Y-m-d'),
             'fecha_reingreso' => $this->fecha_reingreso?->format('Y-m-d'),
+            'fecha_baja' => $this->fecha_baja?->format('Y-m-d'),
             'observacion_recontratacion' => $this->observacion_recontratacion,
             'tallas' => $this->whenLoaded('talla', fn () => [
                 'talla_camisa' => $this->talla?->talla_camisa,

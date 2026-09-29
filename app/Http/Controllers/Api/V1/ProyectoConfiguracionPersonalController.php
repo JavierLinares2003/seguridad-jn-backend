@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\OperacionPersonalAsignado;
 use App\Models\Proyecto;
 use App\Models\ProyectoConfiguracionPersonal;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controllers\HasMiddleware;
 use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ProyectoConfiguracionPersonalController extends Controller implements HasMiddleware
 {
@@ -80,46 +83,55 @@ class ProyectoConfiguracionPersonalController extends Controller implements HasM
 
     public function destroy(Proyecto $proyecto, ProyectoConfiguracionPersonal $configuracionPersonal): JsonResponse
     {
-        // Validar que la configuración pertenece al proyecto
         if ($configuracionPersonal->proyecto_id != $proyecto->id) {
             abort(404, 'Configuración no encontrada en este proyecto');
         }
 
-        // Verificar si hay asignaciones de personal usando esta configuración
-        $tieneAsignaciones = \App\Models\OperacionPersonalAsignado::where('configuracion_puesto_id', $configuracionPersonal->id)->exists();
-
-        if ($tieneAsignaciones) {
-            return response()->json([
-                'success' => false,
-                'message' => 'No se puede eliminar esta configuración porque tiene personal asignado. Por favor, reasigne o elimine primero las asignaciones de personal.'
-            ], 422);
-        }
-
         try {
-            $id = $configuracionPersonal->id;
-            $deleted = $configuracionPersonal->delete();
+            $resultado = DB::transaction(function () use ($proyecto, $configuracionPersonal) {
+                $asignaciones = OperacionPersonalAsignado::where('configuracion_puesto_id', $configuracionPersonal->id)->get();
+                $finalizadas = 0;
 
-            \Log::info('Intento de eliminación de configuración', [
-                'configuracion_id' => $id,
-                'deleted_result' => $deleted,
-                'exists_after' => ProyectoConfiguracionPersonal::where('id', $id)->exists()
-            ]);
+                foreach ($asignaciones as $asignacion) {
+                    if (in_array($asignacion->estado_asignacion, ['activa', 'suspendida'], true)) {
+                        $asignacion->finalizar('Puesto eliminado de la configuración del proyecto');
+                        $finalizadas++;
+                    }
 
-            $this->recalcularMontoTotal($proyecto);
+                    // La FK es NO ACTION: hay que desvincular para poder borrar la plaza
+                    // sin perder el historial de la asignación.
+                    $asignacion->configuracion_puesto_id = null;
+                    $asignacion->save();
+                }
+
+                $id = $configuracionPersonal->id;
+                $deleted = $configuracionPersonal->delete();
+                $this->recalcularMontoTotal($proyecto);
+
+                return [
+                    'deleted' => $deleted,
+                    'configuracion_id' => $id,
+                    'asignaciones_finalizadas' => $finalizadas,
+                    'asignaciones_desvinculadas' => $asignaciones->count(),
+                ];
+            });
+
+            Log::info('Configuración de puesto eliminada', $resultado);
+
             return response()->json([
                 'success' => true,
-                'message' => 'Configuración eliminada correctamente',
-                'deleted' => $deleted
+                'message' => 'Puesto eliminado correctamente. Las asignaciones activas de esa plaza se finalizaron.',
+                'data' => $resultado,
             ], 200);
         } catch (\Exception $e) {
-            \Log::error('Error al eliminar configuración', [
+            Log::error('Error al eliminar configuración', [
                 'configuracion_id' => $configuracionPersonal->id,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
 
             return response()->json([
                 'success' => false,
-                'message' => 'Error al eliminar la configuración: ' . $e->getMessage()
+                'message' => 'Error al eliminar la configuración: ' . $e->getMessage(),
             ], 500);
         }
     }

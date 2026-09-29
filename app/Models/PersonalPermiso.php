@@ -109,30 +109,36 @@ class PersonalPermiso extends Model
 
     public function getHorasReposicionProgramadasAttribute(): float
     {
-        if ($this->relationLoaded('fechasReposicion')) {
-            return (float) $this->fechasReposicion->sum('horas');
-        }
+        try {
+            if ($this->relationLoaded('fechasReposicion')) {
+                return (float) $this->fechasReposicion->sum('horas');
+            }
 
-        return (float) $this->fechasReposicion()->sum('horas');
+            return (float) $this->fechasReposicion()->sum('horas');
+        } catch (\Throwable $e) {
+            return 0;
+        }
     }
 
     public function getEsVacacionesAttribute(): bool
     {
-        return $this->compensa_con === 'vacaciones';
+        return ($this->compensa_con ?? null) === 'vacaciones';
     }
 
     public function getEsConstanciaAttribute(): bool
     {
-        return $this->compensa_con === 'constancia';
+        return ($this->compensa_con ?? null) === 'constancia';
     }
 
     public function getSaldoPendienteAttribute(): float
     {
-        if ($this->compensa_con === 'vacaciones' || $this->compensa_con === 'constancia') {
+        $compensa = $this->compensa_con ?? 'reposicion';
+
+        if ($compensa === 'vacaciones' || $compensa === 'constancia') {
             return 0;
         }
 
-        if ($this->fecha_recuperacion) {
+        if ($this->fecha_recuperacion ?? null) {
             return 0;
         }
 

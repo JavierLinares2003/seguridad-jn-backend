@@ -12,6 +12,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
@@ -23,27 +25,46 @@ class PersonalPermisoController extends Controller
      */
     public function index(Request $request, Personal $personal): JsonResponse
     {
-        $query = $personal->permisos()->with([
-            'registradoPor:id,name',
-            'reposiciones:id,permiso_reposicion_id,fecha_asistencia,horas_reposicion',
-            'fechasReposicion',
-        ]);
+        try {
+            $with = [
+                'registradoPor:id,name',
+                'reposiciones:id,permiso_reposicion_id,fecha_asistencia,horas_reposicion',
+            ];
 
-        if ($request->filled('tipo')) {
-            $query->where('tipo', $request->input('tipo'));
+            if ($this->tieneTablaFechasReposicion()) {
+                $with[] = 'fechasReposicion';
+            }
+
+            $query = $personal->permisos()->with($with);
+
+            if ($request->filled('tipo')) {
+                $query->where('tipo', $request->input('tipo'));
+            }
+
+            if ($request->filled('con_saldo') && $this->puedeFiltrarSaldoPendiente()) {
+                $query->conSaldoPendiente();
+            }
+
+            $permisos = $query->orderBy('fecha_inicio', 'desc')->get()
+                ->map(fn ($p) => $this->formatPermiso($p));
+
+            return response()->json([
+                'success' => true,
+                'data'    => $permisos,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Error al listar permisos de personal', [
+                'personal_id' => $personal->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            // Degradar sin 500: la pantalla puede abrirse aunque falte migración.
+            return response()->json([
+                'success' => true,
+                'data'    => [],
+                'warning' => 'No se pudieron cargar todos los datos de permisos. Verifique migraciones pendientes.',
+            ]);
         }
-
-        if ($request->filled('con_saldo')) {
-            $query->conSaldoPendiente();
-        }
-
-        $permisos = $query->orderBy('fecha_inicio', 'desc')->get()
-            ->map(fn ($p) => $this->formatPermiso($p));
-
-        return response()->json([
-            'success' => true,
-            'data'    => $permisos,
-        ]);
     }
 
     /**
@@ -93,11 +114,7 @@ class PersonalPermisoController extends Controller
             return $permiso;
         });
 
-        $permiso->load([
-            'registradoPor:id,name',
-            'reposiciones:id,permiso_reposicion_id,fecha_asistencia,horas_reposicion',
-            'fechasReposicion',
-        ]);
+        $permiso->load($this->relationsPermisoDetalle());
 
         return response()->json([
             'success' => true,
@@ -116,12 +133,7 @@ class PersonalPermisoController extends Controller
             return response()->json(['success' => false, 'message' => 'Permiso no encontrado.'], 404);
         }
 
-        $permiso->load([
-            'registradoPor:id,name',
-            'reposiciones.asignacion.proyecto',
-            'ausenciasVinculadas',
-            'fechasReposicion',
-        ]);
+        $permiso->load($this->relationsPermisoDetalle(conReposicionesAsistencia: true));
 
         $reposiciones = $permiso->reposiciones->map(fn ($a) => [
             'id'               => $a->id,
@@ -194,11 +206,7 @@ class PersonalPermisoController extends Controller
             }
         });
 
-        $permiso->load([
-            'registradoPor:id,name',
-            'reposiciones:id,permiso_reposicion_id,fecha_asistencia,horas_reposicion',
-            'fechasReposicion',
-        ]);
+        $permiso->load($this->relationsPermisoDetalle());
 
         return response()->json([
             'success' => true,
@@ -303,6 +311,10 @@ class PersonalPermisoController extends Controller
 
     private function syncFechasReposicion(PersonalPermiso $permiso, array $filas): void
     {
+        if (! $this->tieneTablaFechasReposicion()) {
+            return;
+        }
+
         $permiso->fechasReposicion()->delete();
 
         foreach ($filas as $fila) {
@@ -361,9 +373,17 @@ class PersonalPermisoController extends Controller
     {
         $baseUrl = config('app.url');
         $reposiciones = $permiso->relationLoaded('reposiciones') ? $permiso->reposiciones : collect();
-        $fechasProgramadas = $permiso->relationLoaded('fechasReposicion')
-            ? $permiso->fechasReposicion
-            : $permiso->fechasReposicion()->get();
+
+        $fechasProgramadas = collect();
+        if ($this->tieneTablaFechasReposicion()) {
+            try {
+                $fechasProgramadas = $permiso->relationLoaded('fechasReposicion')
+                    ? $permiso->fechasReposicion
+                    : $permiso->fechasReposicion()->get();
+            } catch (\Throwable $e) {
+                $fechasProgramadas = collect();
+            }
+        }
 
         $fechasReposicionFmt = $fechasProgramadas->map(fn ($f) => [
             'id'    => $f->id,
@@ -384,28 +404,28 @@ class PersonalPermisoController extends Controller
             }
         }
 
-        $fechaManual = $this->formatFecha($permiso->fecha_recuperacion);
+        $fechaManual = $this->formatFecha($permiso->fecha_recuperacion ?? null);
         if ($fechaManual && ! $fechasRecuperacion->contains($fechaManual)) {
             $fechasRecuperacion->push($fechaManual);
         }
 
         $repuestasAsistencia = $permiso->relationLoaded('reposiciones')
             ? (float) $reposiciones->sum('horas_reposicion')
-            : (float) $permiso->horas_repuestas;
+            : (float) ($permiso->reposiciones()->sum('horas_reposicion') ?? 0);
         $repuestasProgramadas = (float) collect($fechasReposicionFmt)->sum('horas');
         $repuestas = $repuestasAsistencia + $repuestasProgramadas;
 
-        $esVacaciones = $permiso->compensa_con === 'vacaciones';
-        $esConstancia = $permiso->compensa_con === 'constancia';
+        $compensaCon = $permiso->compensa_con ?: 'reposicion';
+        $esVacaciones = $compensaCon === 'vacaciones';
+        $esConstancia = $compensaCon === 'constancia';
         $recuperado = $esVacaciones
             || $esConstancia
-            || (bool) $permiso->fecha_recuperacion
+            || (bool) ($permiso->fecha_recuperacion ?? null)
             || $repuestas >= (float) $permiso->cantidad_aprobada;
         $saldo = ($esVacaciones || $esConstancia || $recuperado)
             ? 0
             : max(0, (float) $permiso->cantidad_aprobada - $repuestas);
 
-        $compensaCon = $permiso->compensa_con ?: 'reposicion';
         $compensaLabel = match ($compensaCon) {
             'vacaciones' => 'Se toma como día de vacaciones',
             'constancia' => 'Presentó constancia',
@@ -420,7 +440,7 @@ class PersonalPermisoController extends Controller
             'saldo_pendiente'   => $saldo,
             'compensa_con'      => $compensaCon,
             'compensa_label'    => $compensaLabel,
-            'fecha_recuperacion'=> $this->formatFecha($permiso->fecha_recuperacion),
+            'fecha_recuperacion'=> $this->formatFecha($permiso->fecha_recuperacion ?? null),
             'fechas_recuperacion' => $fechasRecuperacion->values()->all(),
             'fechas_reposicion' => $fechasReposicionFmt,
             'recuperado'        => $recuperado,
@@ -430,11 +450,11 @@ class PersonalPermisoController extends Controller
             'fecha_fin'         => $this->formatFecha($permiso->fecha_fin),
             'descripcion'       => $permiso->descripcion,
             'observaciones'     => $permiso->observaciones,
-            'tiene_documento'   => $permiso->tiene_documento,
+            'tiene_documento'   => ! empty($permiso->documento_ruta),
             'documento_nombre'  => $permiso->documento_nombre_original,
             'documento_extension' => $permiso->documento_extension,
             'documento_tamanio_kb' => $permiso->documento_tamanio_kb,
-            'url_documento'     => $permiso->tiene_documento
+            'url_documento'     => ! empty($permiso->documento_ruta)
                 ? "{$baseUrl}/api/v1/personal/{$permiso->personal_id}/permisos/{$permiso->id}/documento"
                 : null,
             'registrado_por'    => $permiso->registradoPor ? [
@@ -443,6 +463,46 @@ class PersonalPermisoController extends Controller
             ] : null,
             'created_at'        => $this->formatFechaHora($permiso->created_at),
         ];
+    }
+
+    private function tieneTablaFechasReposicion(): bool
+    {
+        static $cache = null;
+        if ($cache === null) {
+            try {
+                $cache = Schema::hasTable('personal_permiso_fechas_reposicion');
+            } catch (\Throwable $e) {
+                $cache = false;
+            }
+        }
+
+        return $cache;
+    }
+
+    private function puedeFiltrarSaldoPendiente(): bool
+    {
+        return $this->tieneTablaFechasReposicion()
+            && Schema::hasColumn('personal_permisos', 'compensa_con');
+    }
+
+    private function relationsPermisoDetalle(bool $conReposicionesAsistencia = false): array
+    {
+        $with = [
+            'registradoPor:id,name',
+            $conReposicionesAsistencia
+                ? 'reposiciones.asignacion.proyecto'
+                : 'reposiciones:id,permiso_reposicion_id,fecha_asistencia,horas_reposicion',
+        ];
+
+        if ($conReposicionesAsistencia) {
+            $with[] = 'ausenciasVinculadas';
+        }
+
+        if ($this->tieneTablaFechasReposicion()) {
+            $with[] = 'fechasReposicion';
+        }
+
+        return $with;
     }
 
     private function formatFecha(mixed $fecha): ?string

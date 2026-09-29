@@ -621,7 +621,16 @@ class PersonalController extends Controller
 
         PersonalAdministrativoGuard::abortSiNoPuedeVerExpediente(request()->user(), $personal);
 
-        $personal->update(['estado' => $request->estado]);
+        $payload = ['estado' => $request->estado];
+        if (in_array($request->estado, ['suspendido', 'no_contratar', 'inactivo'], true)) {
+            if (empty($personal->fecha_baja)) {
+                $payload['fecha_baja'] = now()->toDateString();
+            }
+        } elseif (in_array($request->estado, ['activo', 'extrero', 'pre_alta'], true)) {
+            $payload['fecha_baja'] = null;
+        }
+
+        $personal->update($payload);
 
         return response()->json([
             'success' => true,
@@ -629,6 +638,7 @@ class PersonalController extends Controller
             'data' => [
                 'id' => $personal->id,
                 'estado' => $personal->estado,
+                'fecha_baja' => $personal->fecha_baja?->format('Y-m-d'),
             ],
         ]);
     }
@@ -697,6 +707,7 @@ class PersonalController extends Controller
             'fecha_reingreso' => $validated['fecha_reingreso'],
             'observacion_recontratacion' => $validated['observacion_recontratacion'] ?? $personal->observacion_recontratacion,
             'fecha_ingreso_original' => $original,
+            'fecha_baja' => null,
         ]);
 
         return response()->json([
@@ -854,7 +865,11 @@ class PersonalController extends Controller
 
         DB::beginTransaction();
         try {
-            $personal->update(['estado' => $validated['estado']]);
+            $payload = ['estado' => $validated['estado']];
+            if (empty($personal->fecha_baja)) {
+                $payload['fecha_baja'] = now()->toDateString();
+            }
+            $personal->update($payload);
 
             $asignaciones = $personal->asignacionesActivas()->get();
             foreach ($asignaciones as $asignacion) {
@@ -876,6 +891,7 @@ class PersonalController extends Controller
             'data' => [
                 'id'                       => $personal->id,
                 'estado'                   => $validated['estado'],
+                'fecha_baja'               => $personal->fresh()->fecha_baja?->format('Y-m-d'),
                 'asignaciones_finalizadas' => $asignaciones->count(),
             ],
         ]);
