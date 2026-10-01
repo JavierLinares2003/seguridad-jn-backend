@@ -102,7 +102,12 @@
         &nbsp;&nbsp;
         <span class="box">{{ !empty($esSalida) ? 'X' : '' }}</span> Salida
         &nbsp;&nbsp;&nbsp;
-        <strong>PRECIO:</strong> Q. {{ number_format((float) $entrega->monto_total, 2) }}
+        <strong>PRECIO:</strong>
+        @if($entrega->precio_boleta !== null && $entrega->precio_boleta !== '')
+            Q. {{ number_format((float) $entrega->precio_boleta, 2) }}
+        @else
+            Q. <span style="display:inline-block; border-bottom:1px solid #111; min-width:90px;">&nbsp;</span>
+        @endif
     </div>
 
     <div><strong>OBSERVACIONES:</strong></div>
@@ -113,9 +118,6 @@
                 {{ $item->variante?->producto?->nombre }}
                 @if($item->variante?->etiqueta && $item->variante->etiqueta !== 'Única')
                     ({{ $item->variante->etiqueta }})
-                @endif
-                @if($entrega->cobrar)
-                    — Q{{ number_format((float) $item->precio_unitario, 2) }}
                 @endif
             </div>
         @endforeach

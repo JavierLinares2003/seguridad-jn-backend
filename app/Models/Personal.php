@@ -320,7 +320,21 @@ class Personal extends Model
                   ->orWhereRaw("unaccent(puesto) ilike unaccent(?)", [$like])
                   ->orWhere('dpi', 'like', $like)
                   ->orWhere('email', 'like', $like)
-                  ->orWhere('telefono', 'like', $like);
+                  ->orWhere('telefono', 'like', $like)
+                  ->orWhereHas('asignaciones', function ($a) use ($like) {
+                      $a->where('estado_asignacion', 'activa')
+                        ->where(function ($f) {
+                            $f->whereNull('fecha_fin')
+                              ->orWhereDate('fecha_fin', '>=', now()->toDateString());
+                        })
+                        ->where(function ($a2) use ($like) {
+                            $a2->whereHas('configuracionPuesto', function ($c) use ($like) {
+                                $c->whereRaw("unaccent(coalesce(nombre_puesto, '')) ilike unaccent(?)", [$like]);
+                            })->orWhereHas('turno', function ($t) use ($like) {
+                                $t->whereRaw("unaccent(nombre) ilike unaccent(?)", [$like]);
+                            });
+                        });
+                  });
             });
         }
 

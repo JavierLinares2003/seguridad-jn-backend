@@ -357,6 +357,7 @@ class BodegaController extends Controller implements HasMiddleware
             'variante_entrada_dano_id' => ['nullable', 'exists:bodega_variantes,id'],
             'cantidad_entrada_dano' => ['nullable', 'integer', 'min:1'],
             'observaciones' => ['nullable', 'string'],
+            'precio_boleta' => ['nullable', 'numeric', 'min:0'],
             'fecha_entrega' => ['nullable', 'date'],
             'proyecto_id' => ['nullable', 'exists:proyectos,id'],
             'items' => ['required', 'array', 'min:1'],

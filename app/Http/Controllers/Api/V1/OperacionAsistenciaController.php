@@ -324,15 +324,57 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
     }
 
     /**
+     * Nombre, DPI o puesto titular (plaza, tipo o turno) de las asignaciones de ese día.
+     */
+    private function aplicarBusquedaPuesto($query, ?string $buscar)
+    {
+        $buscar = trim((string) $buscar);
+        if ($buscar === '') {
+            return $query;
+        }
+
+        $tokens = array_values(array_filter(explode(' ', $buscar)));
+
+        return $query->where(function ($w) use ($tokens) {
+            $w->whereHas('personal', function ($pq) use ($tokens) {
+                foreach ($tokens as $token) {
+                    $like = '%' . $token . '%';
+                    $pq->where(function ($inner) use ($like) {
+                        $inner->whereRaw("unaccent(nombres) ilike unaccent(?)", [$like])
+                            ->orWhereRaw("unaccent(apellidos) ilike unaccent(?)", [$like])
+                            ->orWhereRaw("unaccent(puesto) ilike unaccent(?)", [$like])
+                            ->orWhere('dpi', 'like', $like);
+                    });
+                }
+            })->orWhere(function ($puestoQ) use ($tokens) {
+                foreach ($tokens as $token) {
+                    $like = '%' . $token . '%';
+                    $puestoQ->where(function ($one) use ($like) {
+                        $one->whereHas('configuracionPuesto', function ($c) use ($like) {
+                            $c->whereRaw("unaccent(coalesce(nombre_puesto, '')) ilike unaccent(?)", [$like]);
+                        })->orWhereHas('configuracionPuesto.tipoPersonal', function ($t) use ($like) {
+                            $t->whereRaw("unaccent(nombre) ilike unaccent(?)", [$like]);
+                        })->orWhereHas('turno', function ($t) use ($like) {
+                            $t->whereRaw("unaccent(nombre) ilike unaccent(?)", [$like]);
+                        });
+                    });
+                }
+            });
+        });
+    }
+
+    /**
      * Retorna proyectos con su personal asignado para una fecha, paginado por proyectos.
      * Criterio: hay asignación vigente ese día. No se filtra por fechas del contrato
      * (si hay gente en el puesto, el proyecto debe salir en el listado).
      */
     private function getProyectosConPersonal(Carbon $fecha, int $perPage, ?string $buscar = null): JsonResponse
     {
-        $proyectosConAsignaciones = \App\Models\OperacionPersonalAsignado::vigentes($fecha)
-            ->whereNotNull('proyecto_id')
-            ->when($buscar, fn ($q) => $q->whereHas('personal', fn ($pq) => $pq->buscar($buscar)))
+        $proyectosConAsignaciones = $this->aplicarBusquedaPuesto(
+            \App\Models\OperacionPersonalAsignado::vigentes($fecha)
+                ->whereNotNull('proyecto_id'),
+            $buscar
+        )
             ->distinct()
             ->pluck('proyecto_id');
 
@@ -344,15 +386,17 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             ->paginate($perPage);
 
         // Para cada proyecto, obtener su personal con asistencia
-        $proyectosConPersonal = $proyectosPaginados->getCollection()->map(function ($proyecto) use ($fecha) {
-            $asignaciones = \App\Models\OperacionPersonalAsignado::with([
-                'personal',
-                'turno',
-                'configuracionPuesto.tipoPersonal',
-            ])
-            ->where('proyecto_id', $proyecto->id)
-            ->vigentes($fecha)
-            ->get();
+        $proyectosConPersonal = $proyectosPaginados->getCollection()->map(function ($proyecto) use ($fecha, $buscar) {
+            $asignaciones = $this->aplicarBusquedaPuesto(
+                \App\Models\OperacionPersonalAsignado::with([
+                    'personal',
+                    'turno',
+                    'configuracionPuesto.tipoPersonal',
+                ])
+                ->where('proyecto_id', $proyecto->id)
+                ->vigentes($fecha),
+                $buscar
+            )->get();
 
             // Obtener asistencias para estas asignaciones
             $asistencias = OperacionAsistencia::with(['personalReemplazo', 'motivoAusencia', 'permisoReposicion'])
@@ -458,17 +502,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         }
 
         if ($request->filled('buscar')) {
-            $tokens = array_values(array_filter(explode(' ', trim($request->input('buscar')))));
-            $query->whereHas('personal', function ($q) use ($tokens) {
-                foreach ($tokens as $token) {
-                    $like = '%' . $token . '%';
-                    $q->where(function ($inner) use ($like) {
-                        $inner->whereRaw("unaccent(nombres) ilike unaccent(?)", [$like])
-                              ->orWhereRaw("unaccent(apellidos) ilike unaccent(?)", [$like])
-                              ->orWhere('dpi', 'like', $like);
-                    });
-                }
-            });
+            $this->aplicarBusquedaPuesto($query, $request->input('buscar'));
         }
 
         $proyectoIds = $query->pluck('proyecto_id')->unique()->values();
@@ -486,15 +520,17 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
 
         $proyectos = Proyecto::whereIn('id', $proyectoIds)->orderBy('nombre_proyecto')->get();
 
-        $resultado = $proyectos->map(function ($proyecto) use ($fecha) {
-            $asignaciones = \App\Models\OperacionPersonalAsignado::with([
-                'personal',
-                'turno',
-                'configuracionPuesto.tipoPersonal',
-            ])
-            ->where('proyecto_id', $proyecto->id)
-            ->vigentes($fecha)
-            ->get();
+        $resultado = $proyectos->map(function ($proyecto) use ($fecha, $request) {
+            $asignaciones = $this->aplicarBusquedaPuesto(
+                \App\Models\OperacionPersonalAsignado::with([
+                    'personal',
+                    'turno',
+                    'configuracionPuesto.tipoPersonal',
+                ])
+                ->where('proyecto_id', $proyecto->id)
+                ->vigentes($fecha),
+                $request->input('buscar')
+            )->get();
 
             $asistencias = OperacionAsistencia::with(['personalReemplazo', 'motivoAusencia', 'permisoReposicion'])
                 ->whereIn('personal_asignado_id', $asignaciones->pluck('id'))

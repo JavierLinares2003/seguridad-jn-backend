@@ -561,6 +561,9 @@ class BodegaService
                 'tipo' => $tipo,
                 'cobrar' => $cobrar,
                 'monto_total' => $cobrar ? $montoTotal : 0,
+                'precio_boleta' => isset($data['precio_boleta']) && $data['precio_boleta'] !== '' && $data['precio_boleta'] !== null
+                    ? round((float) $data['precio_boleta'], 2)
+                    : null,
                 'cuotas_totales' => $cobrar ? ((int) ($data['descuento']['cuotas_totales'] ?? 0) ?: null) : null,
                 'monto_cuota' => null,
                 'motivo_reposicion' => $tipo === 'reposicion' ? ($data['motivo_reposicion'] ?? null) : null,

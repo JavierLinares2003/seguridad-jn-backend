@@ -54,7 +54,20 @@ class PersonalController extends Controller
             ->buscar($request->input('buscar'))
             ->byDepartamento($request->input('departamento_id'))
             ->byDepartamentoNombre($request->input('departamento_nombre'))
-            ->byEstado($request->input('estado'));
+            ->byEstado($request->boolean('incluye_pre_alta') ? null : $request->input('estado'));
+
+        if ($request->filled('periodo_inicio')) {
+            $inicio = $request->input('periodo_inicio');
+            $fin = $request->input('periodo_fin') ?: $inicio;
+            $query->with(['asignaciones' => function ($a) use ($inicio, $fin) {
+                $a->where('estado_asignacion', 'activa')
+                    ->whereDate('fecha_inicio', '<=', $fin)
+                    ->where(function ($f) use ($inicio) {
+                        $f->whereNull('fecha_fin')->orWhereDate('fecha_fin', '>=', $inicio);
+                    })
+                    ->with('configuracionPuesto:id,nombre_puesto');
+            }]);
+        }
 
         $user = $request->user();
         if ($request->boolean('directorio')) {
@@ -65,8 +78,21 @@ class PersonalController extends Controller
             ) {
                 abort(403, 'No autorizado.');
             }
-            // Bodega: receptor = operativo; quien entrega = administrativo.
-            if ($request->has('es_administrativo')) {
+            if ($request->boolean('incluye_pre_alta')) {
+                $query->whereIn('estado', ['activo', 'extrero', 'pre_alta']);
+            }
+            // Bodega: receptor = operativo; quien entrega = administrativo o gerencia.
+            if ($request->boolean('entregado_por')) {
+                $query->where(function ($q) {
+                    $q->where('es_administrativo', true)
+                        ->orWhereRaw("unaccent(coalesce(puesto, '')) ilike unaccent(?)", ['%geren%'])
+                        ->orWhereRaw("unaccent(coalesce(puesto, '')) ilike unaccent(?)", ['%jefatur%'])
+                        ->orWhereHas('departamento', function ($d) {
+                            $d->whereRaw("unaccent(nombre) ilike unaccent(?)", ['%geren%'])
+                              ->orWhereRaw("unaccent(nombre) ilike unaccent(?)", ['%administr%']);
+                        });
+                });
+            } elseif ($request->has('es_administrativo')) {
                 if ($request->boolean('es_administrativo')) {
                     $query->administrativo();
                 } else {
@@ -97,8 +123,8 @@ class PersonalController extends Controller
             $query->orderBy($sortBy, $sortOrder);
         }
 
-        // Paginación
-        $perPage = min($request->input('per_page', 15), 100);
+        // Paginación. El directorio de bodega pide listas más largas (administrativos y gerencia).
+        $perPage = min($request->input('per_page', 15), $request->boolean('directorio') ? 200 : 100);
         $personal = $query->paginate($perPage);
 
         return new PersonalCollection($personal);
@@ -645,6 +671,15 @@ class PersonalController extends Controller
 
     public function storePreAlta(Request $request): JsonResponse
     {
+        $user = $request->user();
+        if (
+            !PersonalAdministrativoGuard::tiene($user, 'view-bodega')
+            && !PersonalAdministrativoGuard::tiene($user, 'manage-bodega')
+            && !PersonalAdministrativoGuard::tiene($user, 'create-personal')
+        ) {
+            abort(403, 'No autorizado.');
+        }
+
         $data = $request->validate([
             'nombres' => ['required', 'string', 'max:100'],
             'apellidos' => ['required', 'string', 'max:100'],

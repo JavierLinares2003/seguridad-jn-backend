@@ -44,6 +44,15 @@ class PersonalResource extends JsonResource
             'vive_en_cuadra' => (bool) $this->vive_en_cuadra,
             'alcance' => 'completo',
             'puesto'         => $this->puesto,
+            'puestos_titular' => $this->when(
+                $this->relationLoaded('asignaciones'),
+                fn () => $this->asignaciones
+                    ->map(fn ($a) => $a->configuracionPuesto?->nombre_puesto)
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all()
+            ),
             'fecha_inicio'   => $this->fecha_inicio?->format('Y-m-d'),
             'fecha_ingreso_original' => $this->fecha_ingreso_original?->format('Y-m-d')
                 ?: $this->fecha_inicio?->format('Y-m-d'),
