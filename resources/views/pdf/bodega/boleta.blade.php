@@ -113,11 +113,17 @@
     <div><strong>OBSERVACIONES:</strong></div>
     <div class="obs">
         @foreach($entrega->items as $item)
+            @php
+                $noDevuelto = (int) ($item->cantidad_no_devuelta ?? 0);
+            @endphp
             <div class="obs-line">
                 {{ $item->cantidad }}
                 {{ $item->variante?->producto?->nombre }}
                 @if($item->variante?->etiqueta && $item->variante->etiqueta !== 'Única')
                     ({{ $item->variante->etiqueta }})
+                @endif
+                @if($noDevuelto > 0)
+                    <strong> — PENDIENTE DE ENTREGA ({{ $noDevuelto }})</strong>
                 @endif
             </div>
         @endforeach

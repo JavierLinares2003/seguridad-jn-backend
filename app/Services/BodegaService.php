@@ -520,13 +520,17 @@ class BodegaService
             $fecha = $data['fecha_entrega'] ?? now()->toDateString();
             $lineas = [];
             $montoTotal = 0.0;
+            $montoBoleta = isset($data['precio_boleta']) && $data['precio_boleta'] !== '' && $data['precio_boleta'] !== null
+                ? round((float) $data['precio_boleta'], 2)
+                : null;
+            $cobraPorPaquete = $cobrar && $montoBoleta !== null && $montoBoleta > 0;
 
             foreach ($items as $idx => $item) {
                 $varianteId = (int) ($item['variante_id'] ?? 0);
                 $cantidad = (int) ($item['cantidad'] ?? 0);
                 $variante = BodegaVariante::with('producto')->find($varianteId);
                 $precio = round((float) ($item['precio_unitario'] ?? 0), 2);
-                if ($cobrar && $precio <= 0 && $variante?->producto) {
+                if ($cobrar && $precio <= 0 && !$cobraPorPaquete && $variante?->producto) {
                     $precio = $variante->producto->precioParaCondicion($variante->condicion);
                 }
 
@@ -536,7 +540,7 @@ class BodegaService
                 if ($cobrar && $precio < 0) {
                     throw new InvalidArgumentException('Ítem #' . ($idx + 1) . ': el precio no puede ser negativo.');
                 }
-                if ($cobrar && $precio <= 0) {
+                if ($cobrar && $precio <= 0 && !$cobraPorPaquete) {
                     throw new InvalidArgumentException('Si se va a cobrar, cada ítem debe tener precio mayor a 0.');
                 }
 
@@ -550,7 +554,8 @@ class BodegaService
                 ];
             }
 
-            if ($cobrar && $montoTotal <= 0) {
+            $montoCobro = $cobraPorPaquete ? $montoBoleta : $montoTotal;
+            if ($cobrar && $montoCobro <= 0) {
                 throw new InvalidArgumentException('El monto total a cobrar debe ser mayor a 0.');
             }
 
@@ -560,10 +565,8 @@ class BodegaService
                 'personal_operaciones_id' => $viaOps ? (int) $data['personal_operaciones_id'] : null,
                 'tipo' => $tipo,
                 'cobrar' => $cobrar,
-                'monto_total' => $cobrar ? $montoTotal : 0,
-                'precio_boleta' => isset($data['precio_boleta']) && $data['precio_boleta'] !== '' && $data['precio_boleta'] !== null
-                    ? round((float) $data['precio_boleta'], 2)
-                    : null,
+                'monto_total' => $cobrar ? $montoCobro : 0,
+                'precio_boleta' => $montoBoleta,
                 'cuotas_totales' => $cobrar ? ((int) ($data['descuento']['cuotas_totales'] ?? 0) ?: null) : null,
                 'monto_cuota' => null,
                 'motivo_reposicion' => $tipo === 'reposicion' ? ($data['motivo_reposicion'] ?? null) : null,
@@ -649,7 +652,7 @@ class BodegaService
 
                     $resultado = $uniformeService->crearDescuentoUniforme([
                         'personal_id' => $personalId,
-                        'monto' => $montoTotal,
+                        'monto' => $montoCobro,
                         'cuotas_totales' => $cuotas,
                         'fecha_inicio' => $descuento['fecha_inicio'] ?? $fecha,
                         'descripcion' => $descripcion,
@@ -659,8 +662,8 @@ class BodegaService
                     $grupoUniforme = $resultado['grupo_uniforme'];
                     $cuotasTotales = $cuotas;
                     $montoCuota = $cuotasTotales > 0
-                        ? round($montoTotal / $cuotasTotales, 2)
-                        : $montoTotal;
+                        ? round($montoCobro / $cuotasTotales, 2)
+                        : $montoCobro;
                     $entrega->update([
                         'grupo_uniforme' => $grupoUniforme,
                         'cuotas_totales' => $cuotasTotales,

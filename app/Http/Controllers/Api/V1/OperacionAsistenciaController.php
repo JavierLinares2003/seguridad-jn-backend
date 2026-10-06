@@ -1460,12 +1460,19 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
         $data = $request->validate([
             'horario_entrada' => ['nullable', 'date_format:H:i'],
             'horario_salida' => ['nullable', 'date_format:H:i'],
+            'horario_sabado_entrada' => ['nullable', 'date_format:H:i'],
+            'horario_sabado_salida' => ['nullable', 'date_format:H:i'],
         ]);
 
-        $persona->update([
-            'horario_entrada' => $data['horario_entrada'] ?? null,
-            'horario_salida' => $data['horario_salida'] ?? null,
-        ]);
+        $payload = [];
+        foreach (['horario_entrada', 'horario_salida', 'horario_sabado_entrada', 'horario_sabado_salida'] as $campo) {
+            if ($request->exists($campo)) {
+                $payload[$campo] = $data[$campo] ?? null;
+            }
+        }
+        if ($payload) {
+            $persona->update($payload);
+        }
 
         return response()->json([
             'success' => true,
@@ -1490,7 +1497,10 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             ->buscar($request->input('buscar'))
             ->orderBy('apellidos')
             ->orderBy('nombres')
-            ->get(['id', 'nombres', 'apellidos', 'puesto', 'estado', 'departamento_id', 'horario_entrada', 'horario_salida']);
+            ->get([
+                'id', 'nombres', 'apellidos', 'puesto', 'estado', 'departamento_id',
+                'horario_entrada', 'horario_salida', 'horario_sabado_entrada', 'horario_sabado_salida',
+            ]);
 
         $asistencias = OperacionAsistencia::query()
             ->whereNull('personal_asignado_id')
@@ -1500,28 +1510,36 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             ->get()
             ->keyBy('personal_id');
 
-        $data = $personal->map(function (Personal $p) use ($asistencias) {
+        $esSabado = $fechaCarbon->isSaturday();
+
+        $data = $personal->map(function (Personal $p) use ($asistencias, $esSabado) {
             $asistencia = $asistencias->get($p->id);
             $minutosRetraso = (int) ($asistencia?->minutos_retraso ?? 0);
             $minutosSalidaTemprana = (int) ($asistencia?->minutos_salida_temprana ?? 0);
             $minutosEntradaAnticipada = (int) ($asistencia?->minutos_entrada_anticipada ?? 0);
             $minutosSalidaTarde = (int) ($asistencia?->minutos_salida_tarde ?? 0);
+            $horarioEntrada = $esSabado
+                ? substr((string) ($p->horario_sabado_entrada ?: '07:00'), 0, 5)
+                : ($p->horario_entrada ? substr((string) $p->horario_entrada, 0, 5) : null);
+            $horarioSalida = $esSabado
+                ? substr((string) ($p->horario_sabado_salida ?: '11:00'), 0, 5)
+                : ($p->horario_salida ? substr((string) $p->horario_salida, 0, 5) : null);
 
             // Fallback si el trigger aún no persistió minutos a favor (tolerancia 5).
-            if ($asistencia && $asistencia->hora_entrada && $p->horario_entrada) {
+            if ($asistencia && $asistencia->hora_entrada && $horarioEntrada) {
                 if ($minutosEntradaAnticipada === 0) {
                     $diff = (int) round(
-                        (strtotime(substr((string) $p->horario_entrada, 0, 5)) - strtotime($asistencia->hora_entrada->format('H:i'))) / 60
+                        (strtotime($horarioEntrada) - strtotime($asistencia->hora_entrada->format('H:i'))) / 60
                     );
                     if ($diff > 5) {
                         $minutosEntradaAnticipada = $diff;
                     }
                 }
             }
-            if ($asistencia && $asistencia->hora_salida && $p->horario_salida) {
+            if ($asistencia && $asistencia->hora_salida && $horarioSalida) {
                 if ($minutosSalidaTarde === 0) {
                     $diff = (int) round(
-                        (strtotime($asistencia->hora_salida->format('H:i')) - strtotime(substr((string) $p->horario_salida, 0, 5))) / 60
+                        (strtotime($asistencia->hora_salida->format('H:i')) - strtotime($horarioSalida)) / 60
                     );
                     if ($diff > 5) {
                         $minutosSalidaTarde = $diff;
@@ -1536,8 +1554,9 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
                 'id' => $p->id,
                 'nombre_completo' => $p->nombre_completo,
                 'puesto' => $p->puesto,
-                'horario_entrada' => $p->horario_entrada ? substr((string) $p->horario_entrada, 0, 5) : null,
-                'horario_salida' => $p->horario_salida ? substr((string) $p->horario_salida, 0, 5) : null,
+                'horario_entrada' => $horarioEntrada,
+                'horario_salida' => $horarioSalida,
+                'es_sabado' => $esSabado,
                 'asistencia' => $asistencia ? [
                     'id' => $asistencia->id,
                     'estado' => $asistencia->estado_dia,
@@ -1563,6 +1582,7 @@ class OperacionAsistenciaController extends Controller implements HasMiddleware
             'data' => $data,
             'meta' => [
                 'fecha' => $fechaCarbon->toDateString(),
+                'es_sabado' => $esSabado,
                 'total' => $data->count(),
             ],
         ]);

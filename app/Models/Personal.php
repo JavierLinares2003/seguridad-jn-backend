@@ -63,6 +63,8 @@ class Personal extends Model
         'es_administrativo',
         'horario_entrada',
         'horario_salida',
+        'horario_sabado_entrada',
+        'horario_sabado_salida',
         'vive_en_cuadra',
         'fecha_inicio',
         'fecha_ingreso_original',
