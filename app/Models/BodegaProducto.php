@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\OrdenTalla;
 use App\Traits\AuditableModel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -50,7 +51,9 @@ class BodegaProducto extends Model
 
     public function variantes(): HasMany
     {
-        return $this->hasMany(BodegaVariante::class, 'producto_id');
+        return $this->hasMany(BodegaVariante::class, 'producto_id')
+            ->orderByRaw(OrdenTalla::sqlColumna('talla'))
+            ->orderBy('condicion');
     }
 
     public function kits(): HasMany

@@ -1,0 +1,121 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use App\Models\Proyecto;
+use App\Models\ProyectoRequerimientoEquipo;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Controllers\HasMiddleware;
+use Illuminate\Routing\Controllers\Middleware;
+use Illuminate\Support\Facades\DB;
+
+class BodegaRequerimientoProyectoController extends Controller implements HasMiddleware
+{
+    public const CATALOGO = [
+        ['clave' => 'estufa', 'nombre' => 'Estufa', 'columna' => 'izq'],
+        ['clave' => 'linternas', 'nombre' => 'Linternas', 'columna' => 'izq'],
+        ['clave' => 'libro_consignas', 'nombre' => 'Libro de consignas', 'columna' => 'izq'],
+        ['clave' => 'tablilla', 'nombre' => 'Tablilla', 'columna' => 'izq'],
+        ['clave' => 'hojas_control', 'nombre' => 'Hojas de control', 'columna' => 'izq'],
+        ['clave' => 'telefono', 'nombre' => 'Teléfono', 'columna' => 'izq'],
+        ['clave' => 'cargador_tel', 'nombre' => 'Cargador de teléfono', 'columna' => 'izq'],
+        ['clave' => 'radios', 'nombre' => 'Radios', 'columna' => 'izq'],
+        ['clave' => 'detector_metal', 'nombre' => 'Detector de metal', 'columna' => 'izq'],
+        ['clave' => 'paralayzer', 'nombre' => 'Paralayzer', 'columna' => 'izq'],
+        ['clave' => 'batones', 'nombre' => 'Batones y porta batón', 'columna' => 'izq'],
+        ['clave' => 'revolver', 'nombre' => 'Revólver', 'columna' => 'der'],
+        ['clave' => 'pistola_9mm', 'nombre' => 'Pistola 9mm', 'columna' => 'der'],
+        ['clave' => 'funda', 'nombre' => 'Funda', 'columna' => 'der'],
+        ['clave' => 'escopeta', 'nombre' => 'Escopeta', 'columna' => 'der'],
+        ['clave' => 'porta_escopeta', 'nombre' => 'Porta escopeta', 'columna' => 'der'],
+        ['clave' => 'cinturones', 'nombre' => 'Cinturones', 'columna' => 'der'],
+        ['clave' => 'municiones', 'nombre' => 'Municiones', 'columna' => 'der'],
+        ['clave' => 'rotulo', 'nombre' => 'Rótulo Seguridad JN', 'columna' => 'der'],
+        ['clave' => 'armero', 'nombre' => 'Armero', 'columna' => 'der'],
+        ['clave' => 'colchon_catre', 'nombre' => 'Colchón y catre', 'columna' => 'der'],
+    ];
+
+    public static function middleware(): array
+    {
+        return [
+            new Middleware('permission:view-bodega', only: ['show']),
+            new Middleware('permission:manage-bodega', only: ['update']),
+        ];
+    }
+
+    public function show(Request $request): JsonResponse
+    {
+        $proyectoId = $request->integer('proyecto_id') ?: null;
+        $guardados = $proyectoId
+            ? ProyectoRequerimientoEquipo::query()->where('proyecto_id', $proyectoId)->get()->keyBy('clave')
+            : collect();
+
+        $items = array_map(function (array $item) use ($guardados) {
+            $row = $guardados->get($item['clave']);
+
+            return [
+                'clave' => $item['clave'],
+                'nombre' => $item['nombre'],
+                'columna' => $item['columna'],
+                'requerido' => (bool) ($row->requerido ?? false),
+                'cantidad' => (int) ($row->cantidad ?? 0),
+            ];
+        }, self::CATALOGO);
+
+        $proyectos = Proyecto::query()
+            ->whereIn('estado_proyecto', ['planificacion', 'activo'])
+            ->orderBy('nombre_proyecto')
+            ->get(['id', 'nombre_proyecto', 'correlativo']);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'proyectos' => $proyectos,
+                'items' => $items,
+            ],
+        ]);
+    }
+
+    public function update(Request $request): JsonResponse
+    {
+        $claves = collect(self::CATALOGO)->pluck('clave')->all();
+        $data = $request->validate([
+            'proyecto_id' => ['required', 'integer', 'exists:proyectos,id'],
+            'items' => ['required', 'array'],
+            'items.*.clave' => ['required', 'string', 'in:' . implode(',', $claves)],
+            'items.*.cantidad' => ['nullable', 'integer', 'min:0', 'max:999'],
+            'items.*.requerido' => ['nullable', 'boolean'],
+        ]);
+
+        DB::transaction(function () use ($data) {
+            foreach ($data['items'] as $item) {
+                $cantidad = (int) ($item['cantidad'] ?? 0);
+                $requerido = (bool) ($item['requerido'] ?? false) || $cantidad > 0;
+                if (!$requerido) {
+                    ProyectoRequerimientoEquipo::query()
+                        ->where('proyecto_id', $data['proyecto_id'])
+                        ->where('clave', $item['clave'])
+                        ->delete();
+                    continue;
+                }
+
+                ProyectoRequerimientoEquipo::query()->updateOrCreate(
+                    [
+                        'proyecto_id' => $data['proyecto_id'],
+                        'clave' => $item['clave'],
+                    ],
+                    [
+                        'requerido' => true,
+                        'cantidad' => $cantidad > 0 ? $cantidad : 1,
+                    ]
+                );
+            }
+        });
+
+        $request->merge(['proyecto_id' => $data['proyecto_id']]);
+
+        return $this->show($request);
+    }
+}

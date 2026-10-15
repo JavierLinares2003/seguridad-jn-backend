@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\BodegaProducto;
+use App\Support\OrdenTalla;
 use App\Models\BodegaVariante;
 use App\Services\BodegaService;
 use Illuminate\Http\JsonResponse;
@@ -91,7 +92,11 @@ class BodegaProductoController extends Controller implements HasMiddleware
             });
         }
 
-        $items = $query->orderBy('nombre')->paginate($request->integer('per_page', 20));
+        $items = $query
+            ->orderByRaw(OrdenTalla::sqlFamilia('nombre'))
+            ->orderByRaw(OrdenTalla::sqlEnTexto('nombre'))
+            ->orderBy('nombre')
+            ->paginate($request->integer('per_page', 20));
         $items->getCollection()->each(fn (BodegaProducto $p) => $p->attachProductoToVariantes());
 
         return response()->json(['success' => true, 'data' => $items]);
@@ -101,7 +106,7 @@ class BodegaProductoController extends Controller implements HasMiddleware
     {
         $producto = BodegaProducto::with([
             'categoria',
-            'variantes' => fn ($q) => $q->where('activo', true)->orderBy('genero')->orderBy('talla')->orderBy('condicion'),
+            'variantes' => fn ($q) => $q->where('activo', true)->orderBy('genero'),
         ])->findOrFail($id);
         $producto->attachProductoToVariantes();
 

@@ -650,6 +650,11 @@ Route::prefix('v1')->group(function () {
             Route::post('/entregas/{id}/devolver', [\App\Http\Controllers\Api\V1\BodegaController::class, 'devolverEntrega'])
                 ->name('api.v1.bodega.entregas.devolver');
 
+            Route::get('/requerimientos-proyecto', [\App\Http\Controllers\Api\V1\BodegaRequerimientoProyectoController::class, 'show'])
+                ->name('api.v1.bodega.requerimientos-proyecto.show');
+            Route::put('/requerimientos-proyecto', [\App\Http\Controllers\Api\V1\BodegaRequerimientoProyectoController::class, 'update'])
+                ->name('api.v1.bodega.requerimientos-proyecto.update');
+
             Route::get('/kits', [\App\Http\Controllers\Api\V1\BodegaController::class, 'kits'])
                 ->name('api.v1.bodega.kits.index');
             Route::post('/kits', [\App\Http\Controllers\Api\V1\BodegaController::class, 'storeKit'])
