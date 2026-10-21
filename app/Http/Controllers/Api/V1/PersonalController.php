@@ -48,6 +48,7 @@ class PersonalController extends Controller
                 'tipoContratacion:id,nombre',
                 'tipoPago:id,nombre',
                 'departamento:id,nombre',
+                'talla',
                 'nivelEstudio:id,nombre',
             ])
             ->withExists('entregasEquipoPendientes')
