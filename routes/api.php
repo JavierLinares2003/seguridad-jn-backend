@@ -658,6 +658,8 @@ Route::prefix('v1')->group(function () {
                 ->name('api.v1.bodega.requerimientos-proyecto.devolucion');
             Route::post('/devoluciones-uniforme', [\App\Http\Controllers\Api\V1\BodegaRequerimientoProyectoController::class, 'storeDevolucionUniforme'])
                 ->name('api.v1.bodega.devoluciones-uniforme.store');
+            Route::get('/devoluciones-uniforme/{id}/boleta', [\App\Http\Controllers\Api\V1\BodegaRequerimientoProyectoController::class, 'boletaDevolucionUniforme'])
+                ->name('api.v1.bodega.devoluciones-uniforme.boleta');
 
             Route::get('/kits', [\App\Http\Controllers\Api\V1\BodegaController::class, 'kits'])
                 ->name('api.v1.bodega.kits.index');

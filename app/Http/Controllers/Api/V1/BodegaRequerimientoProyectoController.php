@@ -43,7 +43,7 @@ class BodegaRequerimientoProyectoController extends Controller implements HasMid
     public static function middleware(): array
     {
         return [
-            new Middleware('permission:view-bodega', only: ['show']),
+            new Middleware('permission:view-bodega', only: ['show', 'boletaDevolucionUniforme']),
             new Middleware('permission:manage-bodega', only: ['update', 'storeDevolucion', 'storeDevolucionUniforme']),
         ];
     }
@@ -223,5 +223,73 @@ class BodegaRequerimientoProyectoController extends Controller implements HasMid
             'message' => 'Devolución de uniforme registrada.',
             'data' => $registro,
         ], 201);
+    }
+
+    public function boletaDevolucionUniforme(int $id)
+    {
+        $registro = BodegaDevolucionUniforme::query()->with('personal')->findOrFail($id);
+        $personal = $registro->personal;
+        $nombresPrenda = [
+            'camisa' => 'CAMISA',
+            'pantalon' => 'PANTALÓN',
+            'chaleco' => 'CHALECO',
+            'gorra' => 'GORRA',
+            'gorgorito' => 'GORGORITO',
+            'gafete' => 'GAFETE',
+            'botas' => 'BOTAS',
+        ];
+
+        $items = collect($registro->prendas ?? [])->map(function ($prenda) use ($nombresPrenda) {
+            $nombre = $nombresPrenda[$prenda['clave'] ?? ''] ?? strtoupper((string) ($prenda['clave'] ?? 'PRENDA'));
+            $devuelve = (bool) ($prenda['devuelve'] ?? false);
+            $talla = trim((string) ($prenda['talla'] ?? ''));
+            if (!$devuelve) {
+                $nombre = 'NO DEVUELVE — ' . $nombre;
+                $talla = '';
+            }
+
+            return (object) [
+                'cantidad' => $devuelve ? 1 : '',
+                'cantidad_no_devuelta' => 0,
+                'variante' => (object) [
+                    'etiqueta' => $talla !== '' ? 'Talla ' . $talla : null,
+                    'producto' => (object) ['nombre' => $nombre],
+                ],
+            ];
+        });
+
+        $nombre = trim((string) $registro->nombre_persona);
+        $personaBoleta = (object) [
+            'nombres' => $personal?->nombres ?: $nombre,
+            'apellidos' => $personal?->nombres ? ($personal->apellidos ?? '') : '',
+            'dpi' => $personal?->dpi,
+            'puesto' => $personal?->puesto ?: 'DEVOLUCIÓN DE UNIFORME',
+        ];
+
+        $entrega = (object) [
+            'id' => $registro->id,
+            'numero_boleta' => 'D' . str_pad((string) $registro->id, 6, '0', STR_PAD_LEFT),
+            'fecha_entrega' => $registro->fecha,
+            'personalOperaciones' => null,
+            'cambio_por_dano' => false,
+            'precio_boleta' => null,
+            'items' => $items,
+            'observaciones' => $registro->observaciones,
+            'motivo_reposicion' => null,
+            'registradoPor' => null,
+        ];
+
+        $logo = public_path('images/imagen-removebg-preview.png');
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.bodega.boleta', [
+            'entrega' => $entrega,
+            'personal' => $personaBoleta,
+            'esNuevo' => false,
+            'esUsado' => false,
+            'esSalida' => false,
+            'logoPath' => is_file($logo) ? $logo : null,
+        ]);
+        $pdf->setPaper('letter', 'portrait');
+
+        return $pdf->stream('BOLETA-BODEGA-' . $entrega->numero_boleta . '.pdf');
     }
 }
