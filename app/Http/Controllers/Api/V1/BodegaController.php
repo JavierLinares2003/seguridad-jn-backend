@@ -287,6 +287,25 @@ class BodegaController extends Controller implements HasMiddleware
         if ($request->filled('fecha_hasta')) {
             $query->whereDate('fecha_entrega', '<=', $request->fecha_hasta);
         }
+        if ($request->filled('buscar')) {
+            $term = trim((string) $request->input('buscar'));
+            $like = '%' . $term . '%';
+            $digits = preg_replace('/\D/', '', $term);
+            $query->where(function ($q) use ($like, $digits) {
+                $q->where('numero_boleta', 'ilike', $like)
+                    ->orWhereHas('personal', function ($p) use ($like) {
+                        $p->whereRaw("unaccent(nombres || ' ' || apellidos) ilike unaccent(?)", [$like])
+                            ->orWhereRaw("unaccent(apellidos || ' ' || nombres) ilike unaccent(?)", [$like]);
+                    })
+                    ->orWhereHas('personalOperaciones', function ($p) use ($like) {
+                        $p->whereRaw("unaccent(nombres || ' ' || apellidos) ilike unaccent(?)", [$like]);
+                    });
+                if ($digits !== '') {
+                    $q->orWhere('numero_boleta', 'ilike', '%' . $digits . '%')
+                        ->orWhereRaw('id::text = ?', [$digits]);
+                }
+            });
+        }
 
         $items = $query->orderByDesc('fecha_entrega')->orderByDesc('id')
             ->paginate($request->integer('per_page', 20));
